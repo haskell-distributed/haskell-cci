@@ -1,0 +1,311 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>Network.CCI</title><link href="ocean.css" rel="stylesheet" type="text/css" title="Ocean" /><script src="haddock-util.js" type="text/javascript"></script><script type="text/javascript">//<![CDATA[
+window.onload = function () {pageLoad();setSynopsis("mini_Network-CCI.html");};
+//]]>
+</script></head><body><div id="package-header"><ul class="links" id="page-menu"><li><a href="index.html">Contents</a></li><li><a href="doc-index.html">Index</a></li></ul><p class="caption">cci-0.0.1: Bindings for the CCI networking library</p></div><div id="content"><div id="module-header"><p class="caption">Network.CCI</p></div><div id="table-of-contents"><p class="caption">Contents</p><ul><li><a href="#g:1">Devices
+</a></li><li><a href="#g:2">Setting options
+</a></li><li><a href="#g:3">Connections
+</a></li><li><a href="#g:4">Event handling
+</a></li><li><a href="#g:5">Send and RMA
+</a></li><li><a href="#g:6">Error handling
+</a></li></ul></div><div id="synopsis"><p id="control.syn" class="caption expander" onclick="toggleSection('syn')">Synopsis</p><ul id="section.syn" class="hide" onclick="toggleSection('syn')"><li class="src short"><span class="keyword">type</span> <a href="#t:URI">URI</a> = <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Char.html#t:String">String</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:Device">Device</a> </li><li class="src short"><span class="keyword">data</span>  <a href="#t:DevicesHandle">DevicesHandle</a> </li><li class="src short"><span class="keyword">data</span>  <a href="#t:Endpoint">Endpoint</a> </li><li class="src short"><span class="keyword">data</span>  <a href="#t:Connection">Connection</a> </li><li class="src short"><a href="#v:connectionMaxSendSize">connectionMaxSendSize</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></li><li class="src short"><a href="#v:init">init</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:getDevices">getDevices</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> ([<a href="Network-CCI.html#t:Device">Device</a>], <a href="Network-CCI.html#t:DevicesHandle">DevicesHandle</a>)</li><li class="src short"><a href="#v:freeDevices">freeDevices</a> :: <a href="Network-CCI.html#t:DevicesHandle">DevicesHandle</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:withDevices">withDevices</a> ::  ([<a href="Network-CCI.html#t:Device">Device</a>] -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a) -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a</li><li class="src short"><a href="#v:createEndpoint">createEndpoint</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Device">Device</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="Network-CCI.html#t:Endpoint">Endpoint</a>, <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-Posix-Types.html#t:Fd">Fd</a>)</li><li class="src short"><a href="#v:destroyEndpoint">destroyEndpoint</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:EndpointOption">EndpointOption</a> <ul class="subs"><li>= <a href="#v:OPT_ENDPT_SEND_TIMEOUT">OPT_ENDPT_SEND_TIMEOUT</a>  </li><li>| <a href="#v:OPT_ENDPT_RECV_BUF_COUNT">OPT_ENDPT_RECV_BUF_COUNT</a>  </li><li>| <a href="#v:OPT_ENDPT_SEND_BUF_COUNT">OPT_ENDPT_SEND_BUF_COUNT</a>  </li><li>| <a href="#v:OPT_ENDPT_KEEPALIVE_TIMEOUT">OPT_ENDPT_KEEPALIVE_TIMEOUT</a>  </li></ul></li><li class="src short"><span class="keyword">data</span>  <a href="#t:ConnectionOption">ConnectionOption</a>  = <a href="#v:OPT_CONN_SEND_TIMEOUT">OPT_CONN_SEND_TIMEOUT</a></li><li class="src short"><a href="#v:setConnectionOpt">setConnectionOpt</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="Network-CCI.html#t:ConnectionOption">ConnectionOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:setEndpointOpt">setEndpointOpt</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="Network-CCI.html#t:EndpointOption">EndpointOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:getConnectionOption">getConnectionOption</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></li><li class="src short"><a href="#v:getEndpointOption">getEndpointOption</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="Network-CCI.html#t:EndpointOption">EndpointOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></li><li class="src short"><a href="#v:accept">accept</a> :: <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="Network-CCI.html#t:Connection">Connection</a></li><li class="src short"><a href="#v:reject">reject</a> :: <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:ConnectionAttribute">ConnectionAttribute</a> <ul class="subs"><li>= <a href="#v:CONN_ATTR_RO">CONN_ATTR_RO</a>  </li><li>| <a href="#v:CONN_ATTR_RU">CONN_ATTR_RU</a>  </li><li>| <a href="#v:CONN_ATTR_UU">CONN_ATTR_UU</a>  </li><li>| <a href="#v:CONN_ATTR_UU_MC_TX">CONN_ATTR_UU_MC_TX</a>  </li><li>| <a href="#v:CONN_ATTR_UU_MC_RX">CONN_ATTR_UU_MC_RX</a>  </li></ul></li><li class="src short"><a href="#v:connect">connect</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="Network-CCI.html#t:URI">URI</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a> -&gt; <a href="Network-CCI.html#t:ConnectionAttribute">ConnectionAttribute</a> -&gt; ctx -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Prelude.html#t:Integer">Integer</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:disconnect">disconnect</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:Event">Event</a> </li><li class="src short"><a href="#v:getEventData">getEventData</a> :: <a href="Network-CCI.html#t:BufferHandler">BufferHandler</a> buffer =&gt; <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="Network-CCI.html#t:EventData">EventData</a> buffer)</li><li class="src short"><span class="keyword">class</span>  <a href="#t:BufferHandler">BufferHandler</a> buffer  <span class="keyword">where</span><ul class="subs"><li><a href="#v:mkBuffer">mkBuffer</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Foreign-C-String.html#t:CStringLen">CStringLen</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> buffer</li></ul></li><li class="src short"><span class="keyword">newtype</span>  <a href="#t:VolatilByteString">VolatilByteString</a>  = <a href="#v:VolatilB">VolatilB</a> <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:EventData">EventData</a> buffer<ul class="subs"><li>= <span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a href="#v:EvSend">EvSend</a> ctx <a href="Network-CCI.html#t:Status">Status</a> <a href="Network-CCI.html#t:Connection">Connection</a>  </li><li>| <a href="#v:EvRecv">EvRecv</a> buffer <a href="Network-CCI.html#t:Connection">Connection</a>  </li><li>| <span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a href="#v:EvConnectAccepted">EvConnectAccepted</a> ctx <a href="Network-CCI.html#t:Connection">Connection</a>  </li><li>| <span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a href="#v:EvConnectTimedOut">EvConnectTimedOut</a> ctx  </li><li>| <span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a href="#v:EvConnectRejected">EvConnectRejected</a> ctx  </li><li>| <a href="#v:EvConnectRequest">EvConnectRequest</a> buffer <a href="Network-CCI.html#t:ConnectionAttribute">ConnectionAttribute</a>  </li><li>| <a href="#v:EvKeepAliveTimedOut">EvKeepAliveTimedOut</a> <a href="Network-CCI.html#t:Connection">Connection</a>  </li><li>| <a href="#v:EvEndpointDeviceFailed">EvEndpointDeviceFailed</a> <a href="Network-CCI.html#t:Endpoint">Endpoint</a>  </li></ul></li><li class="src short"><a href="#v:getEvent">getEvent</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Event">Event</a>)</li><li class="src short"><a href="#v:returnEvent">returnEvent</a> :: <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:withEvent">withEvent</a> ::  (<a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a) -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a</li><li class="src short"><span class="keyword">data</span>  <a href="#t:SEND_FLAG">SEND_FLAG</a> <ul class="subs"><li>= <a href="#v:FLAG_BLOCKING">FLAG_BLOCKING</a>  </li><li>| <a href="#v:FLAG_NO_COPY">FLAG_NO_COPY</a>  </li><li>| <a href="#v:FLAG_SILENT">FLAG_SILENT</a>  </li><li>| <a href="#v:FLAG_READ">FLAG_READ</a>  </li><li>| <a href="#v:FLAG_WRITE">FLAG_WRITE</a>  </li><li>| <a href="#v:FLAG_FENCE">FLAG_FENCE</a>  </li></ul></li><li class="src short"><a href="#v:send">send</a> ::  <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a> -&gt; ctx -&gt; [<a href="Network-CCI.html#t:SEND_FLAG">SEND_FLAG</a>] -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></li><li class="src short"><a href="#v:strError">strError</a> :: <a href="Network-CCI.html#t:Status">Status</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Char.html#t:String">String</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:CCIException">CCIException</a>  = <a href="#v:CCIException">CCIException</a> <a href="Network-CCI.html#t:Status">Status</a></li><li class="src short"><span class="keyword">data</span>  <a href="#t:Status">Status</a> <ul class="subs"><li>= <a href="#v:SUCCESS">SUCCESS</a>  </li><li>| <a href="#v:ERROR">ERROR</a>  </li><li>| <a href="#v:ERR_DISCONNECTED">ERR_DISCONNECTED</a>  </li><li>| <a href="#v:ERR_RNR">ERR_RNR</a>  </li><li>| <a href="#v:ERR_DEVICE_DEAD">ERR_DEVICE_DEAD</a>  </li><li>| <a href="#v:ERR_RMA_HANDLE">ERR_RMA_HANDLE</a>  </li><li>| <a href="#v:ERR_RMA_OP">ERR_RMA_OP</a>  </li><li>| <a href="#v:ERR_NOT_IMPLEMENTED">ERR_NOT_IMPLEMENTED</a>  </li><li>| <a href="#v:ERR_NOT_FOUND">ERR_NOT_FOUND</a>  </li><li>| <a href="#v:EINVAL">EINVAL</a>  </li><li>| <a href="#v:ETIMEDOUT">ETIMEDOUT</a>  </li><li>| <a href="#v:ENOMEM">ENOMEM</a>  </li><li>| <a href="#v:ENODEV">ENODEV</a>  </li><li>| <a href="#v:EBUSY">EBUSY</a>  </li><li>| <a href="#v:ERANGE">ERANGE</a>  </li><li>| <a href="#v:EAGAIN">EAGAIN</a>  </li><li>| <a href="#v:ENOBUFS">ENOBUFS</a>  </li><li>| <a href="#v:EMSGSIZE">EMSGSIZE</a>  </li><li>| <a href="#v:ENOMSG">ENOMSG</a>  </li><li>| <a href="#v:EADDRNOTAVAIL">EADDRNOTAVAIL</a>  </li><li>| <a href="#v:OTHER">OTHER</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Int.html#t:Int">Int</a>  </li></ul></li></ul></div><div id="interface"><h1>Documentation</h1><div class="top"><p class="src"><span class="keyword">type</span> <a name="t:URI" class="def">URI</a> = <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Char.html#t:String">String</a></p></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:Device" class="def">Device</a>  </p><div class="doc"><p>Device representation
+</p></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:DevicesHandle" class="def">DevicesHandle</a>  </p><div class="doc"><p>Handle used to free devices
+</p></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:Endpoint" class="def">Endpoint</a>  </p><div class="doc"><p>Endpoint representation
+</p></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:Connection" class="def">Connection</a>  </p><div class="doc"><p>Connection representation
+</p></div></div><div class="top"><p class="src"><a name="v:connectionMaxSendSize" class="def">connectionMaxSendSize</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></p><div class="doc"><p>Maximum size of the messages the connection can send.
+</p></div></div><div class="top"><p class="src"><a name="v:init" class="def">init</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Initializes CCI. If called more than once, only the
+   first call has any effects.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:SUCCESS">SUCCESS</a></code> CCI is available for use.
+</li><li> <code><a href="Network-CCI.html#v:ENOMEM">ENOMEM</a></code> Not enough memory to complete.
+</li><li> <code><a href="Network-CCI.html#v:ERR_NOT_FOUND">ERR_NOT_FOUND</a></code> No driver or CCI_CONFIG.
+</li><li> <code><a href="Network-CCI.html#v:ERROR">ERROR</a></code> Unable to parse CCI_CONFIG.
+</li><li> errno errors if fopen() fails.
+</li><li> driver-specific errors.
+</li></ul></div></div><h1 id="g:1">Devices
+</h1><div class="top"><p class="src"><a name="v:getDevices" class="def">getDevices</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> ([<a href="Network-CCI.html#t:Device">Device</a>], <a href="Network-CCI.html#t:DevicesHandle">DevicesHandle</a>)</p><div class="doc"><p>Returns a list of &quot;up&quot; devices.
+</p><p>The order of devices returned corresponds to the priority fields in
+ the devices. If two devices share the same priority, their
+ ordering in the return array is arbitrary.
+</p><p>Use the returned handle to freed resources associated with
+ the devices using <code><a href="Network-CCI.html#v:freeDevices">freeDevices</a></code>.
+</p><p>Don't lose the DevicesHandle, or the garbage collector will call
+ <code><a href="Network-CCI.html#v:freeDevices">freeDevices</a></code> before you are done with the returned devices.
+</p><p>Use <code><a href="Network-CCI.html#v:withDevices">withDevices</a></code> instead when it fits your purposes.
+</p></div></div><div class="top"><p class="src"><a name="v:freeDevices" class="def">freeDevices</a> :: <a href="Network-CCI.html#t:DevicesHandle">DevicesHandle</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Resources used by devices obtained with <code><a href="Network-CCI.html#v:getDevices">getDevices</a></code> are freed 
+ with this call.
+</p><p>Calling this on a DevicesHandles which has been freed already
+ has no effect.
+</p><p>Drivers may throw some error when freeing devices.
+</p></div></div><div class="top"><p class="src"><a name="v:withDevices" class="def">withDevices</a> ::  ([<a href="Network-CCI.html#t:Device">Device</a>] -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a) -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a</p><div class="doc"><p>Calls <code><a href="Network-CCI.html#v:getDevices">getDevices</a></code> and <code><a href="Network-CCI.html#v:freeDevices">freeDevices</a></code> around a given
+ block of code. in the presence of errors, <code><a href="Network-CCI.html#v:freeDevices">freeDevices</a></code>
+ is guaranteed to be called.
+</p></div></div><div class="top"><p class="src"><a name="v:createEndpoint" class="def">createEndpoint</a></p><div class="subs arguments"><p class="caption">Arguments</p><table><tr><td class="src">:: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Device">Device</a></td><td class="doc"><p>The device to use or Nothing to use the system-default device.
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="Network-CCI.html#t:Endpoint">Endpoint</a>, <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-Posix-Types.html#t:Fd">Fd</a>)</td><td class="doc"><p>The endpoint and an operating system handle that can be used
+ to block for progress on this endpoint.
+</p></td></tr></table></div><div class="doc"><p>This function creates a CCI endpoint. A CCI endpoint represents a
+ collection of local resources (such as buffers and a completion
+ queue). An endpoint is associated with a device that performs the
+ actual communication (see <code><a href="Network-CCI.html#v:getDevices">getDevices</a></code>).
+</p><p>If it is desirable to bind the CCI endpoint to a specific set of
+ resources (e.g., a NUMA node), you should bind the calling thread
+ before calling <code><a href="Network-CCI.html#v:createEndpoint">createEndpoint</a></code>. This is probably done by starting
+ the thread with <code>Control.Concurrent.forkOn</code>.
+</p><p>The OS handle returned by createEndpoint can be manipulated with
+ <code>Control.Concurrent.threadWaitRead</code> and <code>Control.Concurrent.threadWaitWrite</code>.
+</p><p>The garbage collector will release resources associated with the handle
+ if all references to the endpoint are lost and the memory it uses is
+ ever claimed. Additionally, you can call <code><a href="Network-CCI.html#v:destroyEndpoint">destroyEndpoint</a></code> to avoid 
+ depending on the garbage collector for that sake.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:ENODEV">ENODEV</a></code> if the device is not &quot;up&quot;
+</li><li> <code><a href="Network-CCI.html#v:ENOMEM">ENOMEM</a></code> if not enough memory is available
+</li><li> driver-specific errors
+</li></ul></div></div><div class="top"><p class="src"><a name="v:destroyEndpoint" class="def">destroyEndpoint</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Frees resources associated with the endpoint. All open connections 
+ are closed immediately. It is exactly as if <code><a href="Network-CCI.html#v:disconnect">disconnect</a></code> was 
+ invoked on every open connection on this endpoint.
+</p><p>May throw driver-specific errors.
+</p></div></div><h1 id="g:2">Setting options
+</h1><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:EndpointOption" class="def">EndpointOption</a>  </p><div class="doc"><p>Endpoint option representation
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:OPT_ENDPT_SEND_TIMEOUT" class="def">OPT_ENDPT_SEND_TIMEOUT</a></td><td class="doc"><p>Default send timeout for all new connections.
+</p></td></tr><tr><td class="src"><a name="v:OPT_ENDPT_RECV_BUF_COUNT" class="def">OPT_ENDPT_RECV_BUF_COUNT</a></td><td class="doc"><p>How many receiver buffers on the endpoint. It is the max
+ number of messages the CCI layer can receive without dropping.
+</p></td></tr><tr><td class="src"><a name="v:OPT_ENDPT_SEND_BUF_COUNT" class="def">OPT_ENDPT_SEND_BUF_COUNT</a></td><td class="doc"><p>How many send buffers on the endpoint. It is the max number of
+ pending messages the CCI layer can buffer before failing or
+ blocking (depending on reliability mode).
+</p></td></tr><tr><td class="src"><a name="v:OPT_ENDPT_KEEPALIVE_TIMEOUT" class="def">OPT_ENDPT_KEEPALIVE_TIMEOUT</a></td><td class="doc"><p>The &quot;keepalive&quot; timeout is to prevent a client from connecting
+ to a server and then the client disappears without the server
+ noticing. If the server never sends anything on the connection,
+ it'll never realize that the client is gone, but the connection
+ is still consuming resources. But note that keepalive timers
+ apply to both clients and servers.
+</p><p>The keepalive timeout is expressed in microseconds. If the
+ keepalive timeout value is set:
+</p><ul><li> If no traffic at all is received on a connection within the
+    keepalive timeout, the EVENT_KEEPALIVE_TIMEOUT event is
+    raised on that connection.
+</li><li> The CCI implementation will automatically send control
+    hearbeats across an inactive (but still alive) connection to
+    reset the peer's keepalive timer before it times out.
+</li></ul><p>If a keepalive event is raised, the keepalive timeout is set to
+ 0 (i.e., it must be &quot;re-armed&quot; before it will timeout again),
+ but the connection is *not* disconnected. Recovery decisions
+ are up to the application; it may choose to <code><a href="Network-CCI.html#v:disconnect">disconnect</a></code> the
+ connection, re-arm the keepalive timeout, etc.
+</p></td></tr></table></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:ConnectionOption" class="def">ConnectionOption</a>  </p><div class="doc"><p>Connection option representation
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:OPT_CONN_SEND_TIMEOUT" class="def">OPT_CONN_SEND_TIMEOUT</a></td><td class="doc"><p>Reliable send timeout in microseconds.
+</p></td></tr></table></div></div><div class="top"><p class="src"><a name="v:setConnectionOpt" class="def">setConnectionOpt</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="Network-CCI.html#t:ConnectionOption">ConnectionOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Sets a connection option value.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:ERR_NOT_IMPLEMENTED">ERR_NOT_IMPLEMENTED</a></code> Not supported by this driver.
+</li><li> driver-specific errors.
+</li></ul></div></div><div class="top"><p class="src"><a name="v:setEndpointOpt" class="def">setEndpointOpt</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="Network-CCI.html#t:EndpointOption">EndpointOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Sets an endpoint option value
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:ERR_NOT_IMPLEMENTED">ERR_NOT_IMPLEMENTED</a></code> Not supported by this driver.
+</li><li> driver-specific errors.
+</li></ul></div></div><div class="top"><p class="src"><a name="v:getConnectionOption" class="def">getConnectionOption</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></p><div class="doc"><p>Retrieves a connection option value.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:ERR_NOT_IMPLEMENTED">ERR_NOT_IMPLEMENTED</a></code> Not supported by this driver.
+</li><li> driver-specific errors.
+</li></ul></div></div><div class="top"><p class="src"><a name="v:getEndpointOption" class="def">getEndpointOption</a> :: <a href="Network-CCI.html#t:Endpoint">Endpoint</a> -&gt; <a href="Network-CCI.html#t:EndpointOption">EndpointOption</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Word.html#t:Word32">Word32</a></p><div class="doc"><p>Retrieves an endpoint option value.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:ERR_NOT_IMPLEMENTED">ERR_NOT_IMPLEMENTED</a></code> Not supported by this driver.
+</li><li> driver-specific errors.
+</li></ul></div></div><h1 id="g:3">Connections
+</h1><div class="top"><p class="src"><a name="v:accept" class="def">accept</a></p><div class="subs arguments"><p class="caption">Arguments</p><table><tr><td class="src">:: <a href="Network-CCI.html#t:Event">Event</a></td><td class="doc"><p>A connection request event previously returned by <code><a href="Network-CCI.html#v:getEvent">getEvent</a></code>
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="Network-CCI.html#t:Connection">Connection</a></td><td class="doc empty">&nbsp;</td></tr></table></div><div class="doc"><p>Accepts a connection request and establish a connection with a 
+ specific endpoint.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:EINVAL">EINVAL</a></code> if the Event was not a EvConnectRequest
+</li><li> driver-specific errors
+</li></ul></div></div><div class="top"><p class="src"><a name="v:reject" class="def">reject</a> :: <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Rejects a connection request.
+</p><p>May throw:
+</p><ul><li> <code><a href="Network-CCI.html#v:EINVAL">EINVAL</a></code> if the Event was not a <code><a href="Network-CCI.html#v:EvConnectRequest">EvConnectRequest</a></code>
+</li><li> driver-specific errors
+</li></ul></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:ConnectionAttribute" class="def">ConnectionAttribute</a>  </p><div class="doc"><p>Connection characteristics.
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:CONN_ATTR_RO" class="def">CONN_ATTR_RO</a></td><td class="doc"><p>Reliable ordered. Means that both completions and delivery are
+ in the same order that they were issued.
+</p></td></tr><tr><td class="src"><a name="v:CONN_ATTR_RU" class="def">CONN_ATTR_RU</a></td><td class="doc"><p>Reliable unordered. Means that delivery is guaranteed, but both
+ delivery and completion may be in a different order than they were
+ issued.
+</p></td></tr><tr><td class="src"><a name="v:CONN_ATTR_UU" class="def">CONN_ATTR_UU</a></td><td class="doc"><p>Unreliable unordered (RMA forbidden). Delivery is not guaranteed,
+ and both delivery and completions may be in a different order 
+ than they were issued.
+</p></td></tr><tr><td class="src"><a name="v:CONN_ATTR_UU_MC_TX" class="def">CONN_ATTR_UU_MC_TX</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:CONN_ATTR_UU_MC_RX" class="def">CONN_ATTR_UU_MC_RX</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div><div class="top"><p class="src"><a name="v:connect" class="def">connect</a></p><div class="subs arguments"><p class="caption">Arguments</p><table><tr><td class="src">:: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx</td><td class="doc empty">&nbsp;</td></tr><tr><td class="src">=&gt; <a href="Network-CCI.html#t:Endpoint">Endpoint</a></td><td class="doc"><p>Local endpoint to use for requested connection.
+</p></td></tr><tr><td class="src">-&gt; <a href="Network-CCI.html#t:URI">URI</a></td><td class="doc"><p>Uniform Resource Identifier of the server and is
+   generated by the server's endpoint when it is created.
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a></td><td class="doc"><p>Connection data to be send in the connection request
+   (for authentication, etc).
+</p></td></tr><tr><td class="src">-&gt; <a href="Network-CCI.html#t:ConnectionAttribute">ConnectionAttribute</a></td><td class="doc"><p>Attributes of the requested connection (reliability,
+   ordering, multicast, etc).
+</p></td></tr><tr><td class="src">-&gt; ctx</td><td class="doc"><p>Context used to identify the connection later.
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Prelude.html#t:Integer">Integer</a></td><td class="doc"><p>Nothing means &quot;forever&quot;.
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></td><td class="doc empty">&nbsp;</td></tr></table></div><div class="doc"><p>Initiate a connection request (client side).
+</p><p>Request a connection from a specific endpoint. The server endpoint's address
+ is described by a Uniform Resource Identifier. The use of an URI allows for
+ flexible description (IP address, hostname, etc).
+</p><p>The connection request can carry limited amount of data to be passed to the
+ server for application-specific usage (identification, authentication, etc).
+</p><p>The connect call is always non-blocking, reliable and requires a decision
+ by the server (accept or reject), even for an unreliable connection, except
+ for multicast.
+</p><p>Multicast connections don't necessarily involve a discrete connection
+ server, they may be handled by IGMP or other distributed framework.
+</p><p>endpoint	Local endpoint to use for requested connection.
+</p><p>May throw device-specific errors.
+</p></div></div><div class="top"><p class="src"><a name="v:disconnect" class="def">disconnect</a> :: <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Tears down an existing connection.
+</p><p>Operation is local, remote side is not notified. From that point,
+ both local and remote side will get a <code><a href="Network-CCI.html#v:ERR_DISCONNECTED">ERR_DISCONNECTED</a></code> communication error
+ if sends are initiated on this connection.
+</p><p>May throw driver-specific errors.
+</p></div></div><h1 id="g:4">Event handling
+</h1><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:Event" class="def">Event</a>  </p><div class="doc"><p>Event representation
+</p></div></div><div class="top"><p class="src"><a name="v:getEventData" class="def">getEventData</a> :: <a href="Network-CCI.html#t:BufferHandler">BufferHandler</a> buffer =&gt; <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="Network-CCI.html#t:EventData">EventData</a> buffer)</p><div class="doc"><p>Retrieves the public data contained in an event.
+</p></div></div><div class="top"><p class="src"><span class="keyword">class</span>  <a name="t:BufferHandler" class="def">BufferHandler</a> buffer  <span class="keyword">where</span></p><div class="doc"><p>Determines how a buffer is to be treated.
+</p></div><div class="subs methods"><p class="caption">Methods</p><p class="src"><a name="v:mkBuffer" class="def">mkBuffer</a> :: <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Foreign-C-String.html#t:CStringLen">CStringLen</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> buffer</p><div class="doc"><p>Creates a buffer from a <code><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Foreign-C-String.html#t:CStringLen">CStringLen</a></code>
+</p></div></div><div class="subs instances"><p id="control.i:BufferHandler" class="caption collapser" onclick="toggleSection('i:BufferHandler')">Instances</p><div id="section.i:BufferHandler" class="show"><table><tr><td class="src"><a href="Network-CCI.html#t:BufferHandler">BufferHandler</a> <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a href="Network-CCI.html#t:BufferHandler">BufferHandler</a> <a href="Network-CCI.html#t:VolatilByteString">VolatilByteString</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div></div><div class="top"><p class="src"><span class="keyword">newtype</span>  <a name="t:VolatilByteString" class="def">VolatilByteString</a>  </p><div class="doc"><p>A ByteString which is valid as long as the
+ underlying buffer is not freed.
+</p><p>The underlying buffer is not managed by the garbage collector.
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:VolatilB" class="def">VolatilB</a> <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a></td><td class="doc empty">&nbsp;</td></tr></table></div><div class="subs instances"><p id="control.i:VolatilByteString" class="caption collapser" onclick="toggleSection('i:VolatilByteString')">Instances</p><div id="section.i:VolatilByteString" class="show"><table><tr><td class="src"><a href="Network-CCI.html#t:BufferHandler">BufferHandler</a> <a href="Network-CCI.html#t:VolatilByteString">VolatilByteString</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:EventData" class="def">EventData</a> buffer </p><div class="doc"><p>Representation of data contained in events.
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a name="v:EvSend" class="def">EvSend</a> ctx <a href="Network-CCI.html#t:Status">Status</a> <a href="Network-CCI.html#t:Connection">Connection</a></td><td class="doc"><p>A send or RMA has completed.
+</p><p>On a reliable connection, a sender will generally complete a send
+ when the receiver replies for that message. Additionally, an error
+ status may be returned (<code><a href="Network-CCI.html#v:ERR_DISCONNECTED">ERR_DISCONNECTED</a></code>, <code><a href="Network-CCI.html#v:ERR_RNR">ERR_RNR</a></code>).
+</p><p>On an unreliable connection, a sender will return <code><a href="Network-CCI.html#v:SUCCESS">SUCCESS</a></code> upon
+ local completion (i.e., the message has been queued up to some lower
+ layer -- there is no guarantee that it is &quot;on the wire&quot;, etc.).
+ Other send statuses will only be returned for local errors.
+</p><p>Contains the context provided to <code><a href="Network-CCI.html#v:send">send</a></code>, the result of the 
+ send and the connection.
+</p></td></tr><tr><td class="src"><a name="v:EvRecv" class="def">EvRecv</a> buffer <a href="Network-CCI.html#t:Connection">Connection</a></td><td class="doc"><p>An active message has been received.
+</p><p>A completion event is returned for each message received.
+</p><p>Contains the transmitted data which is valid as long as the event
+ is not returned (<code><a href="Network-CCI.html#v:returnEvent">returnEvent</a></code>).
+</p></td></tr><tr><td class="src"><span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a name="v:EvConnectAccepted" class="def">EvConnectAccepted</a> ctx <a href="Network-CCI.html#t:Connection">Connection</a></td><td class="doc"><p>A new outgoing connection was successfully accepted at the
+ peer; a connection is now available for data transfer.
+</p><p>Contains the context given to <code><a href="Network-CCI.html#v:connect">connect</a></code>.
+</p></td></tr><tr><td class="src"><span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a name="v:EvConnectTimedOut" class="def">EvConnectTimedOut</a> ctx</td><td class="doc"><p>A new outgoing connection did not complete the accept/connect
+ handshake with the peer in the time specified as argument to
+ <code><a href="Network-CCI.html#v:connect">connect</a></code>. CCI has therefore given up attempting to continue to 
+ create this connection.
+</p><p>Contains the context given to <code><a href="Network-CCI.html#v:connect">connect</a></code>.
+</p></td></tr><tr><td class="src"><span class="keyword">forall</span> ctx . <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> ctx =&gt; <a name="v:EvConnectRejected" class="def">EvConnectRejected</a> ctx</td><td class="doc"><p>A new outgoing connection was rejected by the server.
+</p><p>Contains the context given to <code><a href="Network-CCI.html#v:connect">connect</a></code>.
+</p></td></tr><tr><td class="src"><a name="v:EvConnectRequest" class="def">EvConnectRequest</a> buffer <a href="Network-CCI.html#t:ConnectionAttribute">ConnectionAttribute</a></td><td class="doc"><p>An incoming connection request from a client.
+</p><p>Contains the data transmitted with the request and the
+ connection attribute.
+</p></td></tr><tr><td class="src"><a name="v:EvKeepAliveTimedOut" class="def">EvKeepAliveTimedOut</a> <a href="Network-CCI.html#t:Connection">Connection</a></td><td class="doc"><p>The keepalive timeout has expired, i.e. no data from the
+ peer has been received during that time period
+ (see<code><a href="Network-CCI.html#v:OPT_ENDPT_KEEPALIVE_TIMEOUT">OPT_ENDPT_KEEPALIVE_TIMEOUT</a></code> for more details).
+</p></td></tr><tr><td class="src"><a name="v:EvEndpointDeviceFailed" class="def">EvEndpointDeviceFailed</a> <a href="Network-CCI.html#t:Endpoint">Endpoint</a></td><td class="doc"><p>A device on this endpoint has failed.
+</p><p>Contains the endpoint on the device that failed.
+</p></td></tr></table></div></div><div class="top"><p class="src"><a name="v:getEvent" class="def">getEvent</a></p><div class="subs arguments"><p class="caption">Arguments</p><table><tr><td class="src">:: <a href="Network-CCI.html#t:Endpoint">Endpoint</a></td><td class="doc"><p>Endpoint to poll for a new event.
+</p></td></tr><tr><td class="src">-&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> (<a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Event">Event</a>)</td><td class="doc"><p>A new event if any.
+</p></td></tr></table></div><div class="doc"><p>Get the next available CCI event.
+</p><p>This function never blocks; it polls instantly to see if there is
+ any pending event of any type (send completion, receive, or other
+ events -- errors, incoming connection requests, etc.). If you want to
+ block, use the OS handle to use your OS's native blocking mechanism
+ (e.g., select/poll on the POSIX fd). This also allows the app to
+ busy poll for a while and then OS block if nothing interesting is
+ happening. The default OS handle returned when creating the
+ endpoint will return the equivalent of a POLL_IN when any event is
+ available.
+</p><p>This function borrows the buffer associated with the event; it must
+ be explicitly returned later via cci_return_event().
+</p><p>May throw driver-specific errors.
+</p><p>The garbage collector will call <code><a href="Network-CCI.html#v:returnEvent">returnEvent</a></code> if there are no
+ references to the returned event and memory is claimed.
+</p></div></div><div class="top"><p class="src"><a name="v:returnEvent" class="def">returnEvent</a> :: <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>This function gives back to the CCI implementation the 
+ buffer associated with an event that was previously obtained 
+ via <code><a href="Network-CCI.html#v:getEvent">getEvent</a></code>. The data buffer associated with the event will 
+ immediately become stale to the application.
+</p><p>Events may be returned in any order; they do not need to be returned
+ in the same order that <code><a href="Network-CCI.html#v:getEvent">getEvent</a></code> issued them. All events
+ must be returned, even send completions and &quot;other&quot; events, not
+ just receive events. However, it is possible (likely) that
+ returning send completion and &quot;other&quot; events will be no-ops.
+</p><p>May throw driver-specific errors.
+</p></div></div><div class="top"><p class="src"><a name="v:withEvent" class="def">withEvent</a> ::  (<a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Maybe.html#t:Maybe">Maybe</a> <a href="Network-CCI.html#t:Event">Event</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a) -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> a</p><div class="doc"><p>Makes sure the event is returned to the CCI implementation
+ even in the presence of errors.
+</p></div></div><h1 id="g:5">Send and RMA
+</h1><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:SEND_FLAG" class="def">SEND_FLAG</a>  </p><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:FLAG_BLOCKING" class="def">FLAG_BLOCKING</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:FLAG_NO_COPY" class="def">FLAG_NO_COPY</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:FLAG_SILENT" class="def">FLAG_SILENT</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:FLAG_READ" class="def">FLAG_READ</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:FLAG_WRITE" class="def">FLAG_WRITE</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:FLAG_FENCE" class="def">FLAG_FENCE</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div><div class="top"><p class="src"><a name="v:send" class="def">send</a> ::  <a href="Network-CCI.html#t:Connection">Connection</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/bytestring-0.9.1.10/Data-ByteString.html#t:ByteString">ByteString</a> -&gt; ctx -&gt; [<a href="Network-CCI.html#t:SEND_FLAG">SEND_FLAG</a>] -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/ghc-prim-0.2.0.0/GHC-Unit.html#t:-40--41-">()</a></p><div class="doc"><p>Send a short message.
+</p><p>A short message limited to the size of <code><a href="Network-CCI.html#v:connectionMaxSendSize">connectionMaxSendSize</a></code>.
+</p><p>If the application needs to send a message larger than
+ <code><a href="Network-CCI.html#v:connectionMaxSendSize">connectionMaxSendSize</a></code>, the application is responsible for
+ segmenting and reassembly or it should use <code>rma</code>.
+</p><p>When send returns, the provided ByteString is disposable. By
+ default, CCI will buffer the data internally.
+</p><p>The send will complete differently in reliable and unreliable
+ connections:
+</p><ul><li> Reliable: only when remote side ACKs complete delivery -- but not
+    necessary consumption (i.e., remote completion).
+</li><li> Unreliable: when the buffer is re-usable (i.e., local completion).
+</li></ul><p>Flags:
+</p><ul><li> If the <code><a href="Network-CCI.html#v:FLAG_BLOCKING">FLAG_BLOCKING</a></code> flag is specified, <code><a href="Network-CCI.html#v:send">send</a></code> will also
+    block until the send completion has occurred. In this case, there
+    is no event returned for this send via <code><a href="Network-CCI.html#v:getEvent">getEvent</a></code>, the send
+    completion status is returned via <code><a href="Network-CCI.html#v:send">send</a></code>. A safe foreign call
+    is made when using this flag, if you intend to call this function
+    as blocking a lot, perhaps you should consider implementing the blocking 
+    behavior on the Haskell side.
+</li><li> If the <code><a href="Network-CCI.html#v:FLAG_NO_COPY">FLAG_NO_COPY</a></code> is specified, the application is
+    indicating that it does not need the buffer back until the send
+    completion occurs (which is most useful when FLAG_BLOCKING is
+    not specified). The CCI implementation is therefore free to use
+    &quot;zero copy&quot; types of transmission with the buffer -- if it wants to.
+</li><li> <code><a href="Network-CCI.html#v:FLAG_SILENT">FLAG_SILENT</a></code> means that no completion will be generated for
+    non-FLAG_BLOCKING sends. For reliable ordered connections,
+    since completions are issued in order, the completion of any
+    non-SILENT send directly implies the completion of any previous
+    SILENT sends. For unordered connections, completion ordering is not
+    guaranteed -- it is not safe to assume that application protocol
+    semantics imply specific unordered SILENT send completions. The
+    only ways to know when unordered SILENT sends have completed (and
+    that the local send buffer is &quot;owned&quot; by the application again) is
+    either to close the connection or issue a non-SILENT send. The
+    completion of a non-SILENT send guarantees the completion of all
+    previous SILENT sends.
+</li></ul><p>May throw <code><a href="Network-CCI.html#v:ERR_DISCONNECTED">ERR_DISCONNECTED</a></code>, <code><a href="Network-CCI.html#v:ERR_RNR">ERR_RNR</a></code>, or driver-specific errors.
+</p></div></div><h1 id="g:6">Error handling
+</h1><div class="top"><p class="src"><a name="v:strError" class="def">strError</a> :: <a href="Network-CCI.html#t:Status">Status</a> -&gt; <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/System-IO.html#t:IO">IO</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Char.html#t:String">String</a></p><div class="doc"><p>Returns a human readable description of a <code><a href="Network-CCI.html#t:Status">Status</a></code> value.
+</p></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:CCIException" class="def">CCIException</a>  </p><div class="doc"><p>Type of exceptions that can arise when calling cci functions.
+</p></div><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:CCIException" class="def">CCIException</a> <a href="Network-CCI.html#t:Status">Status</a></td><td class="doc empty">&nbsp;</td></tr></table></div><div class="subs instances"><p id="control.i:CCIException" class="caption collapser" onclick="toggleSection('i:CCIException')">Instances</p><div id="section.i:CCIException" class="show"><table><tr><td class="src"><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Text-Show.html#t:Show">Show</a> <a href="Network-CCI.html#t:CCIException">CCIException</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> <a href="Network-CCI.html#t:CCIException">CCIException</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Control-Exception-Base.html#t:Exception">Exception</a> <a href="Network-CCI.html#t:CCIException">CCIException</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div></div><div class="top"><p class="src"><span class="keyword">data</span>  <a name="t:Status" class="def">Status</a>  </p><div class="subs constructors"><p class="caption">Constructors</p><table><tr><td class="src"><a name="v:SUCCESS" class="def">SUCCESS</a></td><td class="doc"><p>Returned from most functions when they succeed.
+</p></td></tr><tr><td class="src"><a name="v:ERROR" class="def">ERROR</a></td><td class="doc"><p>Generic error
+</p></td></tr><tr><td class="src"><a name="v:ERR_DISCONNECTED" class="def">ERR_DISCONNECTED</a></td><td class="doc"><p>For both reliable and unreliable sends, this error code means
+ that cci_disconnect() has been invoked on the send side (in
+ which case this is an application error), or the receiver
+ replied that the receiver invoked cci_disconnect().
+</p></td></tr><tr><td class="src"><a name="v:ERR_RNR" class="def">ERR_RNR</a></td><td class="doc"><p>For a reliable send, this error code means that a receiver
+ is reachable, the connection is connected but the receiver
+ could not receive the incoming message during the timeout
+ period. If a receiver cannot receive an incoming message for
+ transient reasons (most likely out of resources), it returns
+ an Receiver-Not-Ready NACK and drops the message. The sender
+ keeps retrying to send the message until the timeout expires,
+</p><p>If the timeout expires and the last control message received
+ from the receiver was an RNR NACK, then this message is
+ completed with the RNR status. If the connection is both
+ reliable and ordered, then all successive sends are also
+ completed in the order in which they were issued with the RNR
+ status.
+</p><p>This error code will not be returned for unreliable sends.
+</p></td></tr><tr><td class="src"><a name="v:ERR_DEVICE_DEAD" class="def">ERR_DEVICE_DEAD</a></td><td class="doc"><p>The local device is gone, not coming back 
+</p></td></tr><tr><td class="src"><a name="v:ERR_RMA_HANDLE" class="def">ERR_RMA_HANDLE</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a name="v:ERR_RMA_OP" class="def">ERR_RMA_OP</a></td><td class="doc"><p>Error returned from remote peer indicating that it does not support
+ the operation that was requested.
+</p></td></tr><tr><td class="src"><a name="v:ERR_NOT_IMPLEMENTED" class="def">ERR_NOT_IMPLEMENTED</a></td><td class="doc"><p>Not yet implemented
+</p></td></tr><tr><td class="src"><a name="v:ERR_NOT_FOUND" class="def">ERR_NOT_FOUND</a></td><td class="doc"><p>Not found
+</p></td></tr><tr><td class="src"><a name="v:EINVAL" class="def">EINVAL</a></td><td class="doc"><p>Invalid parameter passed to CCI function call 
+</p></td></tr><tr><td class="src"><a name="v:ETIMEDOUT" class="def">ETIMEDOUT</a></td><td class="doc"><p>For a reliable send, this error code means that the sender did
+ not get anything back from the receiver within a timeout (no
+ ACK, no NACK, etc.). It is unknown whether the receiver
+ actually received the message or not.
+</p><p>This error code won't occur for unreliable sends.
+</p></td></tr><tr><td class="src"><a name="v:ENOMEM" class="def">ENOMEM</a></td><td class="doc"><p>No more memory
+</p></td></tr><tr><td class="src"><a name="v:ENODEV" class="def">ENODEV</a></td><td class="doc"><p>No device available
+</p></td></tr><tr><td class="src"><a name="v:EBUSY" class="def">EBUSY</a></td><td class="doc"><p>Resource busy (e.g. port in use)
+</p></td></tr><tr><td class="src"><a name="v:ERANGE" class="def">ERANGE</a></td><td class="doc"><p>Value out of range (e.g. no port available)
+</p></td></tr><tr><td class="src"><a name="v:EAGAIN" class="def">EAGAIN</a></td><td class="doc"><p>Resource temporarily unavailable 
+</p></td></tr><tr><td class="src"><a name="v:ENOBUFS" class="def">ENOBUFS</a></td><td class="doc"><p>The output queue for a network interface is full
+</p></td></tr><tr><td class="src"><a name="v:EMSGSIZE" class="def">EMSGSIZE</a></td><td class="doc"><p>Message too long 
+</p></td></tr><tr><td class="src"><a name="v:ENOMSG" class="def">ENOMSG</a></td><td class="doc"><p>No message of desired type
+</p></td></tr><tr><td class="src"><a name="v:EADDRNOTAVAIL" class="def">EADDRNOTAVAIL</a></td><td class="doc"><p>Address not available
+</p></td></tr><tr><td class="src"><a name="v:OTHER" class="def">OTHER</a> <a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Int.html#t:Int">Int</a></td><td class="doc empty">&nbsp;</td></tr></table></div><div class="subs instances"><p id="control.i:Status" class="caption collapser" onclick="toggleSection('i:Status')">Instances</p><div id="section.i:Status" class="show"><table><tr><td class="src"><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Text-Show.html#t:Show">Show</a> <a href="Network-CCI.html#t:Status">Status</a></td><td class="doc empty">&nbsp;</td></tr><tr><td class="src"><a href="/usr/local/share/doc/ghc/html/libraries/base-4.3.1.0/Data-Typeable.html#t:Typeable">Typeable</a> <a href="Network-CCI.html#t:Status">Status</a></td><td class="doc empty">&nbsp;</td></tr></table></div></div></div></div></div><div id="footer"><p>Produced by <a href="http://www.haskell.org/haddock/">Haddock</a> version 2.9.2</p></div></body></html>

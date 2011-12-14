@@ -1,0 +1,36 @@
+Name:         cci
+Version:      0.0.1
+Synopsis:     Bindings for the CCI networking library
+Description:  The CCI project is an open-source communication interface that 
+              aims to provide a simple and portable API, high performance, 
+			  scalability for the largest deployments, and robustness in the 
+			  presence of faults. It is developed and maintained by a 
+			  partnership of research, academic, and industry members.
+
+License:             AllRightsReserved
+-- License-file:        COPYING
+Author:              Facundo Domínguez, Parallel Scientific LLC
+Maintainer:          Facundo Domínguez <facundo.dominguez@parsci.com>
+Category:            Network
+Build-Type:          Simple
+Cabal-Version:       >= 1.6
+
+source-repository head
+    type:     git
+    location: https://github.com/parsci/cci-haskell
+
+source-repository this
+    type:     git
+    location: https://github.com/parsci/cci-haskell
+    tag:      0.0.1
+
+
+Library
+  exposed-modules:     Network.CCI
+  other-modules:     
+
+  build-depends:       base >= 3 && < 5
+                       , bytestring
+                       
+  ghc-options:      -Wall
+
