@@ -1,7 +1,8 @@
 This repository contains Haskell bindings for the CCI library.
 
-Currently, only the API [skeleton][apilink] is written.
-[apilink]: /blob/master/Network/CCI.hs
+Currently, only the API skeleton is written:
+
+  https://github.com/parsci/cci-haskell/blob/master/Network/CCI.hs
 
 Come back soon!
 
