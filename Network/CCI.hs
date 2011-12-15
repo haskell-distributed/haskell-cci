@@ -1,39 +1,26 @@
-{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls #-}
-module Network.CCI2 where
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving #-}
+
+-- | Haskell bindings for CCI. 
+--
+-- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> .
+-- Most of the comments in this module has been taken and reedited from there.
+--
+module Network.CCI where
 
 import Data.ByteString        ( ByteString, packCStringLen )
 import Data.ByteString.Unsafe ( unsafePackCStringLen )
 import Data.Dynamic           ( Typeable )
 import Foreign.C              ( CStringLen )
-import Data.Word              ( Word32 )
+import Data.Word              ( Word32, Word64 )
 import System.Posix.Types     ( Fd )
 import Control.Exception      ( Exception )
 
-type URI = String
-
--- | Device representation
-data Device
-
--- | Handle used to free devices
-data DevicesHandle
-
--- | Endpoint representation
-data Endpoint ctx
-
--- | Connection representation
-data Connection ctx
-
--- | Maximum size of the messages the connection can send.
-connectionMaxSendSize :: Connection ctx -> Word32
-connectionMaxSendSize = undefined
 
 
 -- | Initializes CCI. If called more than once, only the
 --   first call has any effects.
 -- 
 -- May throw:
---
---  * 'SUCCESS' CCI is available for use.
 --
 --  * 'ENOMEM' Not enough memory to complete.
 --
@@ -54,6 +41,16 @@ init = undefined
 -- * Devices
 
 ------------------------------------------
+
+
+-- | A device represents a network interface card (NIC) or host channel adapter 
+-- (HCA) that connects the host and network. A device may provide multiple 
+-- endpoints (typically one per core).
+
+data Device
+
+-- | Handle used to free devices
+data DevicesHandle
 
 
 -- | Returns a list of \"up\" devices.
@@ -91,9 +88,42 @@ withDevices :: ([Device] -> IO a) -> IO a
 withDevices = undefined
 
 
--- | This function creates a CCI endpoint. A CCI endpoint represents a
--- collection of local resources (such as buffers and a completion
--- queue). An endpoint is associated with a device that performs the
+
+------------------------------------------
+
+-- * Endpoints
+
+------------------------------------------
+
+
+-- | In CCI, an endpoint is the process virtual instance of a device. The endpoint 
+-- is the container of all the communication resources needed by the process 
+-- including queues and buffers including shared send and receive buffers. A 
+-- single endpoint may communicate with any number of peers and provides a single 
+-- completion queue regardless of the number of peers. CCI achieves better 
+-- scalability on very large HPC and data center deployments since the endpoint 
+-- manages buffers independent of how many peers it is communicating with.
+-- 
+-- CCI uses an event model in which an application may either poll or wait for the 
+-- next event.  Events include communication (e.g. send completions)  as well as 
+-- connection handling (e.g. incoming client connection requests). The application 
+-- should return the events to CCI when it no longer needs them. CCI 
+-- achieves better scalability in time versus Sockets since all events are managed 
+-- by a single completion queue.
+--
+-- Because an endpoint serves many connections, some events carry a so-called 
+-- context value which is user-defined and helps identifying with which connection 
+-- and transfer operation the event is related. 
+--
+-- In this realization of the API, all events related to an endpoint use the same type
+-- for context values, which is expressed as the @ctx@ type parameter of 'Endpoint's,
+-- 'Connection's and 'Event's.
+--
+data Endpoint ctx
+
+
+-- | This function creates a CCI endpoint.
+-- An endpoint is associated with a device that performs the
 -- actual communication (see 'getDevices').
 --
 -- If it is desirable to bind the CCI endpoint to a specific set of
@@ -135,108 +165,36 @@ destroyEndpoint = undefined
 
 ------------------------------------------
 
--- * Setting options
-
-------------------------------------------
-
-
--- | Endpoint option representation
-data EndpointOption =
-    -- | Default send timeout for all new connections.
-    OPT_ENDPT_SEND_TIMEOUT 
-
-    -- | How many receiver buffers on the endpoint. It is the max
-    -- number of messages the CCI layer can receive without dropping.
-  | OPT_ENDPT_RECV_BUF_COUNT
-
-    -- | How many send buffers on the endpoint. It is the max number of
-    -- pending messages the CCI layer can buffer before failing or
-    -- blocking (depending on reliability mode).
-  | OPT_ENDPT_SEND_BUF_COUNT
-
-  -- | The \"keepalive\" timeout is to prevent a client from connecting
-  -- to a server and then the client disappears without the server
-  -- noticing. If the server never sends anything on the connection,
-  -- it'll never realize that the client is gone, but the connection
-  -- is still consuming resources. But note that keepalive timers
-  -- apply to both clients and servers.
-  --
-  -- The keepalive timeout is expressed in microseconds. If the
-  -- keepalive timeout value is set:
-  --
-  --  * If no traffic at all is received on a connection within the
-  --    keepalive timeout, the EVENT_KEEPALIVE_TIMEOUT event is
-  --    raised on that connection.
-  --
-  --  * The CCI implementation will automatically send control
-  --    hearbeats across an inactive (but still alive) connection to
-  --    reset the peer's keepalive timer before it times out.
-  -- 
-  -- If a keepalive event is raised, the keepalive timeout is set to
-  -- 0 (i.e., it must be \"re-armed\" before it will timeout again),
-  -- but the connection is *not* disconnected. Recovery decisions
-  -- are up to the application; it may choose to 'disconnect' the
-  -- connection, re-arm the keepalive timeout, etc.
-  | OPT_ENDPT_KEEPALIVE_TIMEOUT
-
-
--- | Connection option representation
-data ConnectionOption =
-    -- | Reliable send timeout in microseconds.
-    OPT_CONN_SEND_TIMEOUT 
-
-
-
--- | Sets a connection option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-setConnectionOpt :: Connection ctx -> ConnectionOption -> Word32 -> IO ()
-setConnectionOpt = undefined
-
--- | Sets an endpoint option value
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-setEndpointOpt :: Endpoint ctx -> EndpointOption -> Word32 -> IO ()
-setEndpointOpt = undefined
-
--- | Retrieves a connection option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-getConnectionOption :: Connection ctx -> IO Word32
-getConnectionOption = undefined
-
--- | Retrieves an endpoint option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
--- 
---  * driver-specific errors.
---
-getEndpointOption :: Endpoint ctx -> EndpointOption -> IO Word32
-getEndpointOption = undefined
-
-
-------------------------------------------
-
 -- * Connections
 
 ------------------------------------------
+
+-- | CCI uses connections to allow an application to choose the level
+-- of service that best fits its needs and to provide fault isolation 
+-- should a peer stop responding. CCI does not, however, allocate 
+-- buffers per peer which reduces scalability.
+--
+-- CCI offers choices of reliability and ordering. Some applications 
+-- such as distributed filesystems need to know that data has arrived 
+-- at the peer. A health monitoring application, on the other hand, 
+-- may want to send data that has a very short lifetime and does not 
+-- want to expend any efforts on retransmission. CCI can accommodate both.
+--
+-- CCI provides Unreliable-Unordered (UU), Reliable-Unordered (RU), 
+-- and Reliable-Ordered (RO) connections as well as UU with send 
+-- multicast and UU with receive multicast. Most RPC style applications 
+-- do not require ordering and can take advantage of RU connections.
+-- When ordering is not required, CCI can take better advantage of 
+-- multiple network paths, etc.
+--
+-- This datatype represents connections for endpoints with contexts
+-- of type @ctx@.
+--
+data Connection ctx
+
+-- | Maximum size of the messages the connection can send.
+connectionMaxSendSize :: Connection ctx -> Word32
+connectionMaxSendSize = undefined
 
 
 -- | Accepts a connection request and establish a connection with a 
@@ -301,12 +259,12 @@ data ConnectionAttribute =
 -- Multicast connections don't necessarily involve a discrete connection
 -- server, they may be handled by IGMP or other distributed framework.
 --
--- endpoint	Local endpoint to use for requested connection.
+-- endpoint Local endpoint to use for requested connection.
 --
 -- May throw device-specific errors.
 --
 connect :: Endpoint ctx -- ^ Local endpoint to use for requested connection.
-        -> URI       -- ^ Uniform Resource Identifier of the server and is
+        -> String    -- ^ Uniform Resource Identifier of the server and is
                      --   generated by the server's endpoint when it is created.
         -> ByteString  -- ^ Connection data to be send in the connection request
                        --   (for authentication, etc).
@@ -332,9 +290,322 @@ disconnect = undefined
 
 ------------------------------------------
 
+-- * Data transfers
+
+------------------------------------------
+
+-- $ CCI has two modes of communication: active messages (AM) and 
+-- remote memory access (RMA).
+
+
+-- ** Active Messages
+
+-- $ Loosely based on Berkeley's Active Messages, CCI's messages are small 
+-- (typically MTU sized) messages. Unlike Berkeley's AM, the message header 
+-- does not include a handler address. Instead, the receiver's CCI library will 
+-- generate a receive event that includes a pointer to the data within the CCI 
+-- library's buffers. The application may inspect the data, copy it out if needed 
+-- longer term, or even forward the data by passing it to the send function. 
+-- By using events instead of handlers, the application does not block further 
+-- communication progress.
+
+
+-- | Send a short message.
+--
+-- A short message limited to the size of 'connectionMaxSendSize'.
+--
+-- If the application needs to send a message larger than
+-- 'connectionMaxSendSize', the application is responsible for
+-- segmenting and reassembly or it should use 'rmaWrite'.
+--
+-- When send returns, the provided ByteString is disposable. By
+-- default, CCI will buffer the data internally.
+--
+-- The send will complete differently in reliable and unreliable
+-- connections:
+--
+--  * Reliable: only when remote side ACKs complete delivery -- but not
+--    necessary consumption (i.e., remote completion).
+--
+--  * Unreliable: when the buffer is re-usable (i.e., local completion).
+--
+-- Flags:
+--
+--  * If the 'FLAG_BLOCKING' flag is specified, 'send' will also
+--    block until the send completion has occurred. In this case, there
+--    is no event returned for this send via 'getEvent', the send
+--    completion status is returned via 'send'. A safe foreign call
+--    is made when using this flag, if you intend to call this function
+--    as blocking a lot, perhaps you should consider implementing the blocking 
+--    behavior on the Haskell side.
+--
+--  * If the 'FLAG_NO_COPY' is specified, the application is
+--    indicating that it does not need the buffer back until the send
+--    completion occurs (which is most useful when FLAG_BLOCKING is
+--    not specified). The CCI implementation is therefore free to use
+--    \"zero copy\" types of transmission with the buffer -- if it wants to.
+--
+--  * 'FLAG_SILENT' means that no completion will be generated for
+--    non-FLAG_BLOCKING sends. For reliable ordered connections,
+--    since completions are issued in order, the completion of any
+--    non-SILENT send directly implies the completion of any previous
+--    SILENT sends. For unordered connections, completion ordering is not
+--    guaranteed -- it is not safe to assume that application protocol
+--    semantics imply specific unordered SILENT send completions. The
+--    only ways to know when unordered SILENT sends have completed (and
+--    that the local send buffer is \"owned\" by the application again) is
+--    either to close the connection or issue a non-SILENT send. The
+--    completion of a non-SILENT send guarantees the completion of all
+--    previous SILENT sends.
+--
+-- May throw 'ERR_DISCONNECTED', 'ERR_RNR', or driver-specific errors.
+--
+send :: Connection ctx -> ByteString -> ctx -> [SEND_FLAG] -> IO ()
+send = undefined
+
+
+-- | Send a short vectored (gather) message.
+--
+-- Like 'send', 'sendv' sends a short message bound by
+-- 'connectionMaxSendSize'. Instead of a single data buffer,
+-- 'sendv' allows the application to gather a list of 
+-- ByteStrings.
+--
+-- May throw driver-specific errors.
+--
+sendv :: Connection ctx -> [ByteString] -> ctx -> [SEND_FLAG] -> IO ()
+sendv = undefined
+
+
+-- | Flags for 'send' and 'sendv'. See 'send' for details.
+data SEND_FLAG =
+    SEND_BLOCKING 
+  | SEND_NO_COPY  
+  | SEND_SILENT 
+
+
+
+-- ** RMA
+
+-- $ When an application needs to move bulk data, CCI provides RMA. To 
+-- use RMA, the application will explicitly register memory with CCI 
+-- and receive a handle. The application can pass the handle to a peer 
+-- using an active message and then perform a RMA Read or Write. The 
+-- RMA may also include a Fence. RMA requires a reliable connection 
+-- (ordered or unordered). An RMA may optionally include a remote 
+-- completion message that will be delivered to the peer after the RMA 
+-- completes. The completion message may be as large as a full active 
+-- message.
+
+
+
+-- | Registers memory for RMA operations on the connections of an endpoint.
+--
+-- The intent is that this function is invoked frequently -- \"just
+-- register everything\" before invoking RMA operations.
+--
+-- In the best case, the implementation is cheap/fast enough that the
+-- invocation time doesn't noticeably affect performance (e.g., MX and
+-- PSM). If the implementation is slow (e.g., IB/iWARP), this function
+-- should probably have a registration cache so that at least repeated
+-- registrations are fast.
+--
+-- It is allowable to have overlapping registerations.
+--
+-- May throw:
+--
+--  * 'EINVAL' if the connection is unreliable or the register buffer has length 0.
+--
+--  * driver-specific errors.
+--
+rmaEndpointRegister :: Endpoint ctx -> CStringLen -> IO (RMAHandle HLocal)
+rmaEndpointRegister = undefined
+
+
+-- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
+rmaConnectionRegister :: Connection ctx -> CStringLen -> IO (RMAHandle HLocal)
+rmaConnectionRegister = undefined
+
+-- | Deregisters memory.
+--
+-- If an RMA is in progress that uses this handle, the RMA may abort or
+-- the deregisteration may fail.
+--
+-- May throw driver-specific errors.
+--
+rmaDeregister :: RMAHandle loc -> IO ()
+rmaDeregister = undefined
+
+-- | Wraps an IO operation with calls to 'rmaEndpointRegister' and 'rmaDeregister'.
+--
+-- This function makes sure to call 'rmaDeregister' even in the presence of errors.
+--
+withEndpointRMAHandle :: Endpoint ctx -> CStringLen -> (RMAHandle HLocal -> IO a) -> IO a
+withEndpointRMAHandle = undefined
+
+-- | Like 'withEndpointRMAHandle' but uses 'rmaConnectionRegister' instead of 'rmaEndpointRegister'.
+withConnectionRMAHandle :: Connection ctx -> CStringLen -> (RMAHandle HLocal -> IO a) -> IO a
+withConnectionRMAHandle = undefined
+
+
+-- | Transfers data in remote memory to local memory.
+--
+-- An RMA operation is a data transfer between local and remote buffers.
+-- In order to obtain a RMAHandle to local buffers, you should use one of 
+-- 'rmaEndpointRegister' or 'rmaConnectionRegister'. To obtain a RMAHandle
+-- to a remote buffer, the handle should be transmitted
+--
+-- Adding the 'RMA_FENCE' flag ensures all previous operations are guaranteed to complete
+-- remotely prior to this operation and all subsequent operations. Remote
+-- completion does not imply a remote completion event, merely a successful
+-- RMA operation.
+--
+-- Optionally, sends a remote completion event to the target. If msg_ptr
+-- and msg_len are provided, send a completion event to the target after
+-- the RMA has completed. It is guaranteed to arrive after the RMA operation
+-- has finished.
+--
+-- CCI makes no guarantees about the data delivery within the RMA operation
+-- (e.g., no last-byte-written-last).
+--
+-- Only a local completion 'EvSend' will be generated.
+--
+-- The following flags might be specified:
+--
+--  * RMA_BLOCKING: Blocking call (see cci_send() for details).
+--
+--  * RMA_FENCE: All previous operations are guaranteed to
+--    complete remotely prior to this operation
+--    and all subsequent operations.
+--
+--  * CCI_FLAG_SILENT: Generates no local completion event (see cci_send()
+--    for details).
+-- 
+-- May throw:
+--
+--  * 'EINVAL' if the connection is unreliable or the data length is 0.
+--
+--  * driver-specific errors.
+--
+rmaRead :: Connection ctx      -- ^ Connection used for the RMA transfer.
+        -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
+        -> RMAHandle HLocal    -- ^ Handle to the transfer destination.
+        -> Word64              -- ^ Offset inside the destination buffer.
+        -> RMAHandle HRemote   -- ^ Handle to the transfer source.
+        -> Word64              -- ^ Offset inside the source buffer.
+        -> Word64              -- ^ Length of the data to transfer.
+        -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
+        -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
+        -> IO ()
+rmaRead = undefined
+
+-- | Transfers data in local memory to remote memory.
+--
+-- Flags are set the same than for 'rmaRead'.
+--
+rmaWrite :: Connection ctx      -- ^ Connection used for the RMA transfer.
+         -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
+         -> RMAHandle HRemote   -- ^ Handle to the transfer destination.
+         -> Word64              -- ^ Offset inside the destination buffer.
+         -> RMAHandle HLocal    -- ^ Handle to the transfer source.
+         -> Word64              -- ^ Offset inside the source buffer.
+         -> Word64              -- ^ Length of the data to transfer.
+         -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
+         -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
+         -> IO ()
+rmaWrite = undefined
+
+
+-- | Flags for 'rmaRead' and 'rmaWrite'.
+data RMA_FLAG =
+    RMA_BLOCKING 
+  | RMA_NO_COPY  
+  | RMA_SILENT 
+  | RMA_FENCE
+
+
+
+-- | RMA handles have an associated buffer which is read or written
+-- during RMA operations.
+--
+-- The @loc@ type parameter indicates if the handle is local or remote.
+--
+newtype RMAHandle loc = RMAHandle Word64 -- ^ The Word64 value may be send through
+                                       --   a connection so the other end can write
+                                       --   to the associated registered memory. 
+  deriving (Show, Integral, Real, Enum, Ord, Num, Eq)
+
+-- | Gets a ByteString representation of the handle which can be sent to a peer.
+rmaHandle2ByteString :: RMAHandle HLocal -> ByteString
+rmaHandle2ByteString = undefined
+
+-- | Creates a remote handle from a ByteString representation of a remote
+-- handle (has to have arrived through an active message).
+createRMAHandle :: ByteString -> Maybe (RMAHandle HRemote)
+createRMAHandle = undefined
+
+-- | Index type for local RMA handles
+data HLocal
+-- | Index type for remote RMA handles
+data HRemote
+
+
+
+------------------------------------------
+
 -- * Event handling
 
 ------------------------------------------
+
+
+-- | Get the next available CCI event.
+--
+-- This function never blocks; it polls instantly to see if there is
+-- any pending event of any type (send completion, receive, or other
+-- events -- errors, incoming connection requests, etc.). If you want to
+-- block, use the OS handle to use your OS's native blocking mechanism
+-- (e.g., select/poll on the POSIX fd). This also allows the app to
+-- busy poll for a while and then OS block if nothing interesting is
+-- happening. The default OS handle returned when creating the
+-- endpoint will return the equivalent of a POLL_IN when any event is
+-- available.
+--
+-- This function borrows the buffer associated with the event; it must
+-- be explicitly returned later via cci_return_event().
+--
+-- May throw driver-specific errors.
+--
+-- The garbage collector will call 'returnEvent' if there are no
+-- references to the returned event and memory is claimed.
+--
+getEvent :: Endpoint ctx      -- ^ Endpoint to poll for a new event.
+          -> IO (Maybe (Event ctx)) -- ^ A new event if any.
+getEvent = undefined
+
+
+-- | This function gives back to the CCI implementation the 
+-- buffer associated with an event that was previously obtained 
+-- via 'getEvent'. The data buffer associated with the event will 
+-- immediately become stale to the application.
+--
+-- Events may be returned in any order; they do not need to be returned
+-- in the same order that 'getEvent' issued them. All events
+-- must be returned, even send completions and \"other\" events, not
+-- just receive events. However, it is possible (likely) that
+-- returning send completion and \"other\" events will be no-ops.
+--
+-- May throw driver-specific errors.
+--
+returnEvent :: Event ctx -> IO ()
+returnEvent = undefined
+
+
+-- | Makes sure the event is returned to the CCI implementation
+-- even in the presence of errors.
+withEvent :: (Maybe (Event ctx) -> IO a) -> IO a
+withEvent = undefined
+
+
 
 -- | Event representation
 data Event ctx
@@ -364,7 +635,8 @@ instance BufferHandler VolatilByteString where
 
 -- | Representation of data contained in events.
 data EventData ctx buffer =
-    -- | A send or RMA has completed.
+
+    -- | A 'send' or 'rmaRead' has completed.
     --
     -- On a reliable connection, a sender will generally complete a send
     -- when the receiver replies for that message. Additionally, an error
@@ -431,121 +703,105 @@ data EventData ctx buffer =
 
 
 
--- | Get the next available CCI event.
---
--- This function never blocks; it polls instantly to see if there is
--- any pending event of any type (send completion, receive, or other
--- events -- errors, incoming connection requests, etc.). If you want to
--- block, use the OS handle to use your OS's native blocking mechanism
--- (e.g., select/poll on the POSIX fd). This also allows the app to
--- busy poll for a while and then OS block if nothing interesting is
--- happening. The default OS handle returned when creating the
--- endpoint will return the equivalent of a POLL_IN when any event is
--- available.
---
--- This function borrows the buffer associated with the event; it must
--- be explicitly returned later via cci_return_event().
---
--- May throw driver-specific errors.
---
--- The garbage collector will call 'returnEvent' if there are no
--- references to the returned event and memory is claimed.
---
-getEvent :: Endpoint ctx      -- ^ Endpoint to poll for a new event.
-          -> IO (Maybe (Event ctx)) -- ^ A new event if any.
-getEvent = undefined
-
-
--- | This function gives back to the CCI implementation the 
--- buffer associated with an event that was previously obtained 
--- via 'getEvent'. The data buffer associated with the event will 
--- immediately become stale to the application.
---
--- Events may be returned in any order; they do not need to be returned
--- in the same order that 'getEvent' issued them. All events
--- must be returned, even send completions and \"other\" events, not
--- just receive events. However, it is possible (likely) that
--- returning send completion and \"other\" events will be no-ops.
---
--- May throw driver-specific errors.
---
-returnEvent :: Event ctx -> IO ()
-returnEvent = undefined
-
-
--- | Makes sure the event is returned to the CCI implementation
--- even in the presence of errors.
-withEvent :: (Maybe (Event ctx) -> IO a) -> IO a
-withEvent = undefined
 
 
 ------------------------------------------
 
--- * Send and RMA
+-- * Setting options
 
 ------------------------------------------
 
-data SEND_FLAG =
-    FLAG_BLOCKING 
-  | FLAG_NO_COPY  
-  | FLAG_SILENT 
-  | FLAG_READ
-  | FLAG_WRITE
-  | FLAG_FENCE
+
+-- | Sets a connection option value.
+--
+-- May throw:
+--
+--  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
+--
+--  * driver-specific errors.
+--
+setConnectionOpt :: Connection ctx -> ConnectionOption -> Word32 -> IO ()
+setConnectionOpt = undefined
+
+-- | Sets an endpoint option value
+--
+-- May throw:
+--
+--  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
+--
+--  * driver-specific errors.
+--
+setEndpointOpt :: Endpoint ctx -> EndpointOption -> Word32 -> IO ()
+setEndpointOpt = undefined
+
+-- | Retrieves a connection option value.
+--
+-- May throw:
+--
+--  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
+--
+--  * driver-specific errors.
+--
+getConnectionOption :: Connection ctx -> IO Word32
+getConnectionOption = undefined
+
+-- | Retrieves an endpoint option value.
+--
+-- May throw:
+--
+--  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
+-- 
+--  * driver-specific errors.
+--
+getEndpointOption :: Endpoint ctx -> EndpointOption -> IO Word32
+getEndpointOption = undefined
 
 
--- | Send a short message.
---
--- A short message limited to the size of 'connectionMaxSendSize'.
---
--- If the application needs to send a message larger than
--- 'connectionMaxSendSize', the application is responsible for
--- segmenting and reassembly or it should use 'rma'.
---
--- When send returns, the provided ByteString is disposable. By
--- default, CCI will buffer the data internally.
---
--- The send will complete differently in reliable and unreliable
--- connections:
---
---  * Reliable: only when remote side ACKs complete delivery -- but not
---    necessary consumption (i.e., remote completion).
---
---  * Unreliable: when the buffer is re-usable (i.e., local completion).
---
--- Flags:
---
---  * If the 'FLAG_BLOCKING' flag is specified, 'send' will also
---    block until the send completion has occurred. In this case, there
---    is no event returned for this send via 'getEvent', the send
---    completion status is returned via 'send'. A safe foreign call
---    is made when using this flag, if you intend to call this function
---    as blocking a lot, perhaps you should consider implementing the blocking 
---    behavior on the Haskell side.
---
---  * If the 'FLAG_NO_COPY' is specified, the application is
---    indicating that it does not need the buffer back until the send
---    completion occurs (which is most useful when FLAG_BLOCKING is
---    not specified). The CCI implementation is therefore free to use
---    \"zero copy\" types of transmission with the buffer -- if it wants to.
---
---  * 'FLAG_SILENT' means that no completion will be generated for
---    non-FLAG_BLOCKING sends. For reliable ordered connections,
---    since completions are issued in order, the completion of any
---    non-SILENT send directly implies the completion of any previous
---    SILENT sends. For unordered connections, completion ordering is not
---    guaranteed -- it is not safe to assume that application protocol
---    semantics imply specific unordered SILENT send completions. The
---    only ways to know when unordered SILENT sends have completed (and
---    that the local send buffer is \"owned\" by the application again) is
---    either to close the connection or issue a non-SILENT send. The
---    completion of a non-SILENT send guarantees the completion of all
---    previous SILENT sends.
---
--- May throw 'ERR_DISCONNECTED', 'ERR_RNR', or driver-specific errors.
---
-send :: Connection ctx -> ByteString -> ctx -> [SEND_FLAG] -> IO ()
-send = undefined
+
+-- | Endpoint options
+data EndpointOption =
+    -- | Default send timeout for all new connections.
+    OPT_ENDPT_SEND_TIMEOUT 
+
+    -- | How many receiver buffers on the endpoint. It is the max
+    -- number of messages the CCI layer can receive without dropping.
+  | OPT_ENDPT_RECV_BUF_COUNT
+
+    -- | How many send buffers on the endpoint. It is the max number of
+    -- pending messages the CCI layer can buffer before failing or
+    -- blocking (depending on reliability mode).
+  | OPT_ENDPT_SEND_BUF_COUNT
+
+  -- | The \"keepalive\" timeout is to prevent a client from connecting
+  -- to a server and then the client disappears without the server
+  -- noticing. If the server never sends anything on the connection,
+  -- it'll never realize that the client is gone, but the connection
+  -- is still consuming resources. But note that keepalive timers
+  -- apply to both clients and servers.
+  --
+  -- The keepalive timeout is expressed in microseconds. If the
+  -- keepalive timeout value is set:
+  --
+  --  * If no traffic at all is received on a connection within the
+  --    keepalive timeout, the EVENT_KEEPALIVE_TIMEOUT event is
+  --    raised on that connection.
+  --
+  --  * The CCI implementation will automatically send control
+  --    hearbeats across an inactive (but still alive) connection to
+  --    reset the peer's keepalive timer before it times out.
+  -- 
+  -- If a keepalive event is raised, the keepalive timeout is set to
+  -- 0 (i.e., it must be \"re-armed\" before it will timeout again),
+  -- but the connection is *not* disconnected. Recovery decisions
+  -- are up to the application; it may choose to 'disconnect' the
+  -- connection, re-arm the keepalive timeout, etc.
+  | OPT_ENDPT_KEEPALIVE_TIMEOUT
+
+
+-- | Connection options
+data ConnectionOption =
+    -- | Reliable send timeout in microseconds.
+    OPT_CONN_SEND_TIMEOUT 
 
 
 
