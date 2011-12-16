@@ -39,16 +39,15 @@ module Network.CCI
   , rmaEndpointRegister
   , rmaConnectionRegister 
   , rmaDeregister 
-  , withEndpointRMAHandle 
-  , withConnectionRMAHandle
+  , withEndpointRMALocalHandle 
+  , withConnectionRMALocalHandle
   , rmaRead
   , rmaWrite
   , RMA_FLAG(..)
-  , RMAHandle
+  , RMALocalHandle
+  , RMARemoteHandle
   , rmaHandle2ByteString
-  , createRMAHandle
-  , HLocal
-  , HRemote
+  , createRMARemoteHandle
   -- * Event handling
   , getEvent
   , returnEvent
@@ -502,12 +501,12 @@ data SEND_FLAG =
 --
 --  * driver-specific errors.
 --
-rmaEndpointRegister :: Endpoint ctx -> CStringLen -> IO (RMAHandle HLocal)
+rmaEndpointRegister :: Endpoint ctx -> CStringLen -> IO RMALocalHandle
 rmaEndpointRegister = undefined
 
 
 -- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
-rmaConnectionRegister :: Connection ctx -> CStringLen -> IO (RMAHandle HLocal)
+rmaConnectionRegister :: Connection ctx -> CStringLen -> IO RMALocalHandle
 rmaConnectionRegister = undefined
 
 -- | Deregisters memory.
@@ -517,19 +516,19 @@ rmaConnectionRegister = undefined
 --
 -- May throw driver-specific errors.
 --
-rmaDeregister :: RMAHandle loc -> IO ()
+rmaDeregister :: RMALocalHandle -> IO ()
 rmaDeregister = undefined
 
 -- | Wraps an IO operation with calls to 'rmaEndpointRegister' and 'rmaDeregister'.
 --
 -- This function makes sure to call 'rmaDeregister' even in the presence of errors.
 --
-withEndpointRMAHandle :: Endpoint ctx -> CStringLen -> (RMAHandle HLocal -> IO a) -> IO a
-withEndpointRMAHandle = undefined
+withEndpointRMALocalHandle :: Endpoint ctx -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
+withEndpointRMALocalHandle = undefined
 
 -- | Like 'withEndpointRMAHandle' but uses 'rmaConnectionRegister' instead of 'rmaEndpointRegister'.
-withConnectionRMAHandle :: Connection ctx -> CStringLen -> (RMAHandle HLocal -> IO a) -> IO a
-withConnectionRMAHandle = undefined
+withConnectionRMALocalHandle :: Connection ctx -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
+withConnectionRMALocalHandle = undefined
 
 
 -- | Transfers data in remote memory to local memory.
@@ -573,9 +572,9 @@ withConnectionRMAHandle = undefined
 --
 rmaRead :: Connection ctx      -- ^ Connection used for the RMA transfer.
         -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
-        -> RMAHandle HLocal    -- ^ Handle to the transfer destination.
+        -> RMALocalHandle      -- ^ Handle to the transfer destination.
         -> Word64              -- ^ Offset inside the destination buffer.
-        -> RMAHandle HRemote   -- ^ Handle to the transfer source.
+        -> RMARemoteHandle     -- ^ Handle to the transfer source.
         -> Word64              -- ^ Offset inside the source buffer.
         -> Word64              -- ^ Length of the data to transfer.
         -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
@@ -589,9 +588,9 @@ rmaRead = undefined
 --
 rmaWrite :: Connection ctx      -- ^ Connection used for the RMA transfer.
          -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
-         -> RMAHandle HRemote   -- ^ Handle to the transfer destination.
+         -> RMARemoteHandle     -- ^ Handle to the transfer destination.
          -> Word64              -- ^ Offset inside the destination buffer.
-         -> RMAHandle HLocal    -- ^ Handle to the transfer source.
+         -> RMALocalHandle      -- ^ Handle to the transfer source.
          -> Word64              -- ^ Offset inside the source buffer.
          -> Word64              -- ^ Length of the data to transfer.
          -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
@@ -609,29 +608,24 @@ data RMA_FLAG =
 
 
 
--- | RMA handles have an associated buffer which is read or written
--- during RMA operations.
+-- | RMA local handles have an associated buffer in local memory
+-- which is read or written during RMA operations.
 --
--- The @loc@ type parameter indicates if the handle is local or remote.
+data RMALocalHandle 
+
+-- | RMA remote handles have an associated buffer in a remote location
+-- which is read or written during RMA operations.
 --
-newtype RMAHandle loc = RMAHandle Word64 -- ^ The Word64 value may be send through
-                                       --   a connection so the other end can write
-                                       --   to the associated registered memory. 
-  deriving (Show, Integral, Real, Enum, Ord, Num, Eq)
+data RMARemoteHandle 
 
 -- | Gets a ByteString representation of the handle which can be sent to a peer.
-rmaHandle2ByteString :: RMAHandle HLocal -> ByteString
+rmaHandle2ByteString :: RMALocalHandle -> ByteString
 rmaHandle2ByteString = undefined
 
 -- | Creates a remote handle from a ByteString representation of a remote
 -- handle (has to have arrived through an active message).
-createRMAHandle :: ByteString -> Maybe (RMAHandle HRemote)
-createRMAHandle = undefined
-
--- | Index type for local RMA handles
-data HLocal
--- | Index type for remote RMA handles
-data HRemote
+createRMARemoteHandle :: ByteString -> Maybe RMARemoteHandle
+createRMARemoteHandle = undefined
 
 
 
