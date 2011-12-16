@@ -1,5 +1,5 @@
 
-import Control.Concurrent    ( threadDelay )
+import Control.Concurrent    ( threadWaitRead )
 import Control.Monad         ( forever, void )
 import Data.ByteString as B  ( ByteString, putStrLn )
 import Data.ByteString.Char8 ( pack )
@@ -11,7 +11,7 @@ import Network.CCI           ( initCCI, withEndpoint, accept, ConnectionAttribut
 main = do
     initCCI
     withEndpoint Nothing$ \(ep,fd) -> do
-      forever$ withEventData ep$ maybe (threadDelay (10^5))$ \ev ->
+      forever$ withEventData ep$ maybe (threadWaitRead fd)$ \ev ->
          case ev of
 
            EvConnectRequest ev bs cattr -> void$ accept ev

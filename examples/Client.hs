@@ -1,5 +1,5 @@
 
-import Control.Concurrent    ( threadDelay )
+import Control.Concurrent    ( threadWaitRead )
 import Data.ByteString as B  ( ByteString, putStrLn, empty )
 import Data.ByteString.Char8 ( pack )
 import Network.CCI           ( initCCI, withEndpoint, getEvent, connect, ConnectionAttributes(..)
@@ -11,7 +11,7 @@ main = do
     initCCI
     withEndpoint Nothing$ \(ep,fd) -> do
       connect ep "localhost" empty CONN_ATTR_UU "conn. req. ctx" Nothing
-      loopWhileM id$ withEventData ep$ maybe (threadDelay (10^5) >> return False)$ \ev -> 
+      loopWhileM id$ withEventData ep$ maybe (threadWaitRead fd >> return False)$ \ev -> 
          case ev of
 
            EvConnectAccepted "conn. req. cxt" conn ->
