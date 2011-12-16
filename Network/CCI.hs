@@ -1,11 +1,75 @@
-{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving, TypeSynonymInstances #-}
 
 -- | Haskell bindings for CCI. 
 --
 -- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> .
 -- Most of the comments in this module has been taken and reedited from there.
 --
-module Network.CCI where
+module Network.CCI
+  ( initCCI
+  -- * Devices
+  , Device
+  , DevicesHandle
+  , getDevices
+  , freeDevices
+  , withDevices
+  -- * Endpoints
+  , Endpoint
+  , createEndpoint
+  , destroyEndpoint
+  , withEndpoint
+  -- * Connections
+  , Connection
+  , connectionMaxSendSize
+  , accept
+  , reject
+  , connect
+  , disconnect
+  , ConnectionAttributes(..)
+  -- * Data transfers
+  -- $dt
+
+  -- ** Active Messages
+  -- $amsg
+  , send
+  , sendv
+  , SEND_FLAG(..)
+  -- ** RMA
+  -- $rma
+  , rmaEndpointRegister
+  , rmaConnectionRegister 
+  , rmaDeregister 
+  , withEndpointRMAHandle 
+  , withConnectionRMAHandle
+  , rmaRead
+  , rmaWrite
+  , RMA_FLAG(..)
+  , RMAHandle
+  , rmaHandle2ByteString
+  , createRMAHandle
+  , HLocal
+  , HRemote
+  -- * Event handling
+  , getEvent
+  , returnEvent
+  , withEventData
+  , Event
+  , getEventData
+  , BufferHandler(..)
+  , VolatilByteString(..)
+  , EventData(..)
+  -- * Setting options
+  , setConnectionOpt
+  , setEndpointOpt
+  , getConnectionOpt
+  , getEndpointOpt
+  , EndpointOption(..)
+  , ConnectionOption(..)
+  -- * Error handling
+  , strError 
+  , CCIException(..)
+  , Status(..)
+  ) where
 
 import Data.ByteString        ( ByteString, packCStringLen )
 import Data.ByteString.Unsafe ( unsafePackCStringLen )
@@ -31,22 +95,20 @@ import Control.Exception      ( Exception )
 --  * errno errors if fopen() fails.
 --
 --  * driver-specific errors.
-init :: IO ()
-init = undefined
+initCCI :: IO ()
+initCCI = undefined
 
 
 
 ------------------------------------------
-
--- * Devices
-
+-- Devices
 ------------------------------------------
 
 
 -- | A device represents a network interface card (NIC) or host channel adapter 
 -- (HCA) that connects the host and network. A device may provide multiple 
 -- endpoints (typically one per core).
-
+--
 data Device
 
 -- | Handle used to free devices
@@ -90,9 +152,9 @@ withDevices = undefined
 
 
 ------------------------------------------
-
--- * Endpoints
-
+--
+-- Endpoints
+--
 ------------------------------------------
 
 
@@ -121,6 +183,7 @@ withDevices = undefined
 --
 data Endpoint ctx
 
+instance Show (Endpoint ctx)
 
 -- | This function creates a CCI endpoint.
 -- An endpoint is associated with a device that performs the
@@ -162,12 +225,22 @@ destroyEndpoint :: Endpoint ctx -> IO ()
 destroyEndpoint = undefined
 
 
+-- | Wraps an IO action with calls to 'createEndpoint' and 'destroyEndpoint'.
+--
+-- Makes sure that 'destroyEndpoint' is called in the presence of errors.
+--
+withEndpoint :: Maybe Device -> ((Endpoint ctx,Fd) -> IO a) -> IO a
+withEndpoint = undefined
+
+
+
 
 ------------------------------------------
-
--- * Connections
-
+--
+--  Connections
+--
 ------------------------------------------
+
 
 -- | CCI uses connections to allow an application to choose the level
 -- of service that best fits its needs and to provide fault isolation 
@@ -191,6 +264,8 @@ destroyEndpoint = undefined
 -- of type @ctx@.
 --
 data Connection ctx
+
+instance Show (Connection ctx)
 
 -- | Maximum size of the messages the connection can send.
 connectionMaxSendSize :: Connection ctx -> Word32
@@ -223,26 +298,6 @@ reject :: Event ctx -> IO ()
 reject = undefined
 
 
--- | Connection characteristics.
-data ConnectionAttribute =
-    -- | Reliable ordered. Means that both completions and delivery are
-    -- in the same order that they were issued.
-    CONN_ATTR_RO
-    -- | Reliable unordered. Means that delivery is guaranteed, but both
-    -- delivery and completion may be in a different order than they were
-    -- issued.
-  | CONN_ATTR_RU
-    -- | Unreliable unordered (RMA forbidden). Delivery is not guaranteed,
-    -- and both delivery and completions may be in a different order 
-    -- than they were issued.
-  | CONN_ATTR_UU
-    -- Multicast send (RMA forbidden).
-  | CONN_ATTR_UU_MC_TX
-    -- Multicast rcv (RMA forbidden).
-  | CONN_ATTR_UU_MC_RX
-
-
-
 -- | Initiate a connection request (client side).
 --
 -- Request a connection from a specific endpoint. The server endpoint's address
@@ -251,6 +306,7 @@ data ConnectionAttribute =
 --
 -- The connection request can carry limited amount of data to be passed to the
 -- server for application-specific usage (identification, authentication, etc).
+-- Implementations must support lengths <= 1,024 bytes.
 --
 -- The connect call is always non-blocking, reliable and requires a decision
 -- by the server (accept or reject), even for an unreliable connection, except
@@ -264,11 +320,11 @@ data ConnectionAttribute =
 -- May throw device-specific errors.
 --
 connect :: Endpoint ctx -- ^ Local endpoint to use for requested connection.
-        -> String    -- ^ Uniform Resource Identifier of the server and is
-                     --   generated by the server's endpoint when it is created.
-        -> ByteString  -- ^ Connection data to be send in the connection request
-                       --   (for authentication, etc).
-        -> ConnectionAttribute  -- ^ Attributes of the requested connection (reliability,
+        -> String       -- ^ Uniform Resource Identifier of the server and is
+                        --   generated by the server's endpoint when it is created.
+        -> ByteString   -- ^ Connection data to be send in the connection request
+                        --   (for authentication, etc). 
+        -> ConnectionAttributes -- ^ Attributes of the requested connection (reliability,
                                 --   ordering, multicast, etc).
         -> ctx            -- ^ Context used to identify the connection later.
         -> Maybe Integer  -- ^ Nothing means \"forever\".
@@ -287,20 +343,45 @@ disconnect :: Connection ctx -> IO ()
 disconnect = undefined
 
 
+-- | Connection characteristics.
+data ConnectionAttributes =
+    -- | Reliable ordered. Means that both completions and delivery are
+    -- in the same order that they were issued.
+    CONN_ATTR_RO
+    -- | Reliable unordered. Means that delivery is guaranteed, but both
+    -- delivery and completion may be in a different order than they were
+    -- issued.
+  | CONN_ATTR_RU
+    -- | Unreliable unordered (RMA forbidden). Delivery is not guaranteed,
+    -- and both delivery and completions may be in a different order 
+    -- than they were issued.
+  | CONN_ATTR_UU
+    -- Multicast send (RMA forbidden).
+  | CONN_ATTR_UU_MC_TX
+    -- Multicast rcv (RMA forbidden).
+  | CONN_ATTR_UU_MC_RX
+
+ deriving Show
+
+
 
 ------------------------------------------
-
--- * Data transfers
-
+--
+-- Data transfers
+--
 ------------------------------------------
 
--- $ CCI has two modes of communication: active messages (AM) and 
+-- $dt
+-- CCI has two modes of communication: active messages (AM) and 
 -- remote memory access (RMA).
 
 
--- ** Active Messages
+---------
+-- Active Messages
+---------
 
--- $ Loosely based on Berkeley's Active Messages, CCI's messages are small 
+-- $amsg 
+-- Loosely based on Berkeley's Active Messages, CCI's messages are small 
 -- (typically MTU sized) messages. Unlike Berkeley's AM, the message header 
 -- does not include a handler address. Instead, the receiver's CCI library will 
 -- generate a receive event that includes a pointer to the data within the CCI 
@@ -385,9 +466,12 @@ data SEND_FLAG =
 
 
 
--- ** RMA
+---------
+-- RMA
+---------
 
--- $ When an application needs to move bulk data, CCI provides RMA. To 
+-- $rma
+-- When an application needs to move bulk data, CCI provides RMA. To 
 -- use RMA, the application will explicitly register memory with CCI 
 -- and receive a handle. The application can pass the handle to a peer 
 -- using an active message and then perform a RMA Read or Write. The 
@@ -552,9 +636,9 @@ data HRemote
 
 
 ------------------------------------------
-
--- * Event handling
-
+--
+-- Event handling
+--
 ------------------------------------------
 
 
@@ -571,15 +655,14 @@ data HRemote
 -- available.
 --
 -- This function borrows the buffer associated with the event; it must
--- be explicitly returned later via cci_return_event().
+-- be explicitly returned later via returnEvent.
 --
 -- May throw driver-specific errors.
 --
 -- The garbage collector will call 'returnEvent' if there are no
 -- references to the returned event and memory is claimed.
 --
-getEvent :: Endpoint ctx      -- ^ Endpoint to poll for a new event.
-          -> IO (Maybe (Event ctx)) -- ^ A new event if any.
+getEvent :: Endpoint ctx -> Maybe (Event ctx)
 getEvent = undefined
 
 
@@ -600,15 +683,21 @@ returnEvent :: Event ctx -> IO ()
 returnEvent = undefined
 
 
--- | Makes sure the event is returned to the CCI implementation
+-- | Wraps an IO action with calls to 'getEvent', 'getEventData' and 'returnEvent'.
+--
+-- Makes sure the event is returned to the CCI implementation
 -- even in the presence of errors.
-withEvent :: (Maybe (Event ctx) -> IO a) -> IO a
-withEvent = undefined
-
+--
+-- If the event is a 'EvConnectAccepted' the callback IO action is performed with
+-- asynchronous exceptions blocked.
+withEventData :: BufferHandler buffer => Endpoint ctx -> (Maybe (EventData ctx buffer) -> IO a) -> IO a
+withEventData = undefined
 
 
 -- | Event representation
 data Event ctx
+
+instance Show (Event ctx)
 
 
 -- | Retrieves the public data contained in an event.
@@ -616,10 +705,14 @@ getEventData :: BufferHandler buffer => Event ctx -> IO (EventData ctx buffer)
 getEventData = undefined
 
 -- | Determines how a buffer is to be treated.
+--
+-- Instances of this class can copy the data into a Haskell value
+-- or they can keep a reference to the data without copying it.
 class BufferHandler buffer where
   -- | Creates a buffer from a 'CStringLen'
   mkBuffer :: CStringLen -> IO buffer
 
+-- | Copies provided data into a ByteString.
 instance BufferHandler ByteString where
   mkBuffer = packCStringLen
 
@@ -629,8 +722,16 @@ instance BufferHandler ByteString where
 -- The underlying buffer is not managed by the garbage collector.
 newtype VolatilByteString = VolatilB ByteString
 
+-- | Creates a ByteString which points to the provided data.
+--
+-- The ByteString is usable as long as the buffer containing the
+-- provided data is valid.
 instance BufferHandler VolatilByteString where
   mkBuffer = fmap VolatilB . unsafePackCStringLen
+
+-- | Passes the buffer containing the provided data unmodified.
+instance BufferHandler CStringLen where
+  mkBuffer = return
 
 
 -- | Representation of data contained in events.
@@ -658,7 +759,7 @@ data EventData ctx buffer =
     --
     -- Contains the transmitted data which is valid as long as the event
     -- is not returned ('returnEvent').
-    --
+    -- 
   | EvRecv buffer (Connection ctx)
 
     -- | A new outgoing connection was successfully accepted at the
@@ -685,10 +786,11 @@ data EventData ctx buffer =
 
     -- | An incoming connection request from a client.
     --
-    -- Contains the data transmitted with the request and the
-    -- connection attribute.
+    -- Contains the data transmitted with the request, the
+    -- connection attributes and a reference to the event
+    -- for convenience to call 'accept' and 'reject'.
     --
-  | EvConnectRequest buffer ConnectionAttribute
+  | EvConnectRequest (Event ctx) buffer ConnectionAttributes
 
     -- | The keepalive timeout has expired, i.e. no data from the
     -- peer has been received during that time period
@@ -701,14 +803,15 @@ data EventData ctx buffer =
     -- Contains the endpoint on the device that failed.
   | EvEndpointDeviceFailed (Endpoint ctx)
 
+ deriving Show
 
 
 
 
 ------------------------------------------
-
--- * Setting options
-
+--
+-- Setting options
+--
 ------------------------------------------
 
 
@@ -742,8 +845,8 @@ setEndpointOpt = undefined
 --
 --  * driver-specific errors.
 --
-getConnectionOption :: Connection ctx -> IO Word32
-getConnectionOption = undefined
+getConnectionOpt :: Connection ctx -> ConnectionOption -> IO Word32
+getConnectionOpt = undefined
 
 -- | Retrieves an endpoint option value.
 --
@@ -753,8 +856,8 @@ getConnectionOption = undefined
 -- 
 --  * driver-specific errors.
 --
-getEndpointOption :: Endpoint ctx -> EndpointOption -> IO Word32
-getEndpointOption = undefined
+getEndpointOpt :: Endpoint ctx -> EndpointOption -> IO Word32
+getEndpointOpt = undefined
 
 
 
@@ -807,9 +910,9 @@ data ConnectionOption =
 
 
 ------------------------------------------
-
--- * Error handling
-
+--
+-- Error handling
+--
 ------------------------------------------
 
 
