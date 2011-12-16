@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving, TypeSynonymInstances #-}
+{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving, TypeSynonymInstances, RankNTypes #-}
 
 -- | Haskell bindings for CCI. 
 --
@@ -688,9 +688,18 @@ returnEvent = undefined
 -- Makes sure the event is returned to the CCI implementation
 -- even in the presence of errors.
 --
--- If the event is a 'EvConnectAccepted' the callback IO action is performed with
--- asynchronous exceptions blocked.
-withEventData :: BufferHandler buffer => Endpoint ctx -> (Maybe (EventData ctx buffer) -> IO a) -> IO a
+-- The callback IO action is performed with asynchronous exceptions blocked. Otherwise
+-- a message taken out of the queue would be lost before it can be adequately processed.
+-- If this does not fit your needs consider using one of 'Control.Exception.bracket' or
+-- 'Control.Exception.mask' in combination with 'getEvent'.
+--
+withEventData :: BufferHandler buffer => 
+   Endpoint ctx   -- ^ Endpoint on which to listen for events.
+   -> ((forall b. IO b -> IO b) -> Maybe (EventData ctx buffer) -> IO a) 
+            -- ^ The callback takes a function which can be used to restore
+            --   the blocking state of asynchronous exceptions which existed
+            --   at the time 'withEventData' is computed.
+   -> IO a  -- ^ Yields the callback result.
 withEventData = undefined
 
 
