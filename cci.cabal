@@ -3,13 +3,13 @@ Version:      0.0.1
 Synopsis:     Bindings for the CCI networking library
 Description:  The CCI project is an open-source communication interface that 
               aims to provide a simple and portable API, high performance, 
-			  scalability for the largest deployments, and robustness in the 
-			  presence of faults. It is developed and maintained by a 
-			  partnership of research, academic, and industry members.
-			  .
+              scalability for the largest deployments, and robustness in the 
+              presence of faults. It is developed and maintained by a 
+              partnership of research, academic, and industry members.
+              .
 
               See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> 
-			  for details.
+              for details.
 
 License:             AllRightsReserved
 -- License-file:        COPYING
