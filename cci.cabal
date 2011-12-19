@@ -16,7 +16,7 @@ Author:              Facundo Domínguez, Parallel Scientific LLC
 Maintainer:          Facundo Domínguez <facundo.dominguez@parsci.com>
 Category:            Network
 Build-Type:          Simple
-Cabal-Version:       >= 1.6
+Cabal-Version:       >= 1.8
 
 source-repository head
     type:     git
@@ -30,10 +30,19 @@ source-repository this
 
 Library
   exposed-modules:     Network.CCI
-  other-modules:     
+  other-modules:       
 
   build-depends:       base >= 3 && < 5
                        , bytestring
                        
-  ghc-options:      -Wall
+  ghc-options:      -O -Wall
+  extra-libraries:  cci
+
+
+Test-Suite test-cci
+  type:           exitcode-stdio-1.0
+  main-is:        examples/Client.hs
+  build-depends:  base, bytestring, cci
+  ghc-options:    -O -Wall -idist/build
+
 

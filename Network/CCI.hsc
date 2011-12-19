@@ -1,4 +1,9 @@
-{-# LANGUAGE DeriveDataTypeable, EmptyDataDecls, GeneralizedNewtypeDeriving, TypeSynonymInstances, RankNTypes #-}
+{-# LANGUAGE DeriveDataTypeable         #-} 
+{-# LANGUAGE EmptyDataDecls             #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE ForeignFunctionInterface   #-}
 
 -- | Haskell bindings for CCI. 
 --
@@ -70,14 +75,25 @@ module Network.CCI
   , Status(..)
   ) where
 
+import Control.Exception      ( Exception, throwIO, bracket )
+import Control.Monad          ( liftM )
 import Data.ByteString        ( ByteString, packCStringLen )
-import Data.ByteString.Unsafe ( unsafePackCStringLen )
+import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen )
 import Data.Dynamic           ( Typeable )
-import Foreign.C              ( CStringLen )
 import Data.Word              ( Word32, Word64 )
-import System.Posix.Types     ( Fd )
-import Control.Exception      ( Exception )
+import Foreign.C.Types        ( CInt, CChar )
+import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
+import Foreign.Ptr            ( Ptr, nullPtr )
+import Foreign.StablePtr      ( StablePtr, newStablePtr )
+import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
+import Foreign.Storable       ( peek, peekElemOff, pokeByteOff )
 
+import System.Posix.Types     ( Fd )
+
+
+
+#include <cci.h>
+#include <sys/time.h>
 
 
 -- | Initializes CCI. If called more than once, only the
@@ -170,7 +186,9 @@ import Control.Exception      ( Exception )
 --
 --  * driver-specific errors.
 initCCI :: IO ()
-initCCI = undefined
+initCCI = cci_init (#const CCI_ABI_VERSION) 0 nullPtr  >>= cci_check_exception
+
+foreign import ccall unsafe cci_init :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
 
 
 
@@ -178,15 +196,14 @@ initCCI = undefined
 -- Devices
 ------------------------------------------
 
-
 -- | A device represents a network interface card (NIC) or host channel adapter 
 -- (HCA) that connects the host and network. A device may provide multiple 
 -- endpoints (typically one per core).
 --
-data Device
+newtype Device = Device (Ptr Device)
 
 -- | Handle used to free devices
-data DevicesHandle
+newtype DevicesHandle = DevicesHandle (Ptr (Ptr Device))
 
 
 -- | Returns a list of \"up\" devices.
@@ -198,12 +215,22 @@ data DevicesHandle
 -- Use the returned handle to freed resources associated with
 -- the devices using 'freeDevices'.
 --
--- Don't lose the DevicesHandle, or the garbage collector will call
--- 'freeDevices' before you are done with the returned devices.
---
 -- Use 'withDevices' instead when it fits your purposes.
 getDevices :: IO ([Device],DevicesHandle)
-getDevices = undefined 
+getDevices = do
+    pdev <- alloca$ \ppdev -> cci_get_devices ppdev >>= cci_check_exception >> peek ppdev
+    devices <- peekNullTerminated pdev 0
+    return (map Device devices,DevicesHandle pdev)
+  where
+    peekNullTerminated :: Ptr (Ptr Device) -> Int -> IO [Ptr Device]
+    peekNullTerminated p i = do
+      d <- peekElemOff p i
+      if d == nullPtr then return []
+        else liftM (d:)$ peekNullTerminated p (i+1) 
+
+
+foreign import ccall unsafe cci_get_devices :: Ptr (Ptr (Ptr Device)) -> IO CInt
+
 
 -- | Resources used by devices obtained with 'getDevices' are freed 
 -- with this call.
@@ -214,14 +241,17 @@ getDevices = undefined
 -- Drivers may throw some error when freeing devices.
 --
 freeDevices :: DevicesHandle -> IO ()
-freeDevices = undefined
+freeDevices (DevicesHandle p) = cci_free_devices p >>= cci_check_exception
+
+foreign import ccall unsafe cci_free_devices :: Ptr (Ptr Device) -> IO CInt
 
 
 -- | Calls 'getDevices' and 'freeDevices' around a given
 -- block of code. in the presence of errors, 'freeDevices'
 -- is guaranteed to be called.
 withDevices :: ([Device] -> IO a) -> IO a
-withDevices = undefined
+withDevices f = bracket getDevices (freeDevices . snd) (f . fst)
+
 
 
 
@@ -255,7 +285,7 @@ withDevices = undefined
 -- for context values, which is expressed as the @ctx@ type parameter of 'Endpoint's,
 -- 'Connection's and 'Event's.
 --
-data Endpoint ctx
+newtype Endpoint ctx = Endpoint (Ptr (Endpoint ctx))
 
 instance Show (Endpoint ctx)
 
@@ -287,7 +317,14 @@ instance Show (Endpoint ctx)
 createEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device.
                -> IO (Endpoint ctx,Fd) -- ^ The endpoint and an operating system handle that can be used
                                    -- to block for progress on this endpoint.
-createEndpoint = undefined
+createEndpoint mdev = alloca$ \ppend ->
+    alloca$ \pfd -> do
+      cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend pfd >>= cci_check_exception
+      fd <- peek pfd
+      pend <- peek ppend
+      return (Endpoint pend,fd)
+
+foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Ptr (Endpoint ctx)) -> Ptr Fd -> IO CInt
 
 
 -- | Frees resources associated with the endpoint. All open connections 
@@ -296,7 +333,9 @@ createEndpoint = undefined
 --
 -- May throw driver-specific errors.
 destroyEndpoint :: Endpoint ctx -> IO ()
-destroyEndpoint = undefined
+destroyEndpoint (Endpoint pend) = cci_destroy_endpoint pend >>= cci_check_exception
+
+foreign import ccall unsafe cci_destroy_endpoint :: Ptr (Endpoint ctx) -> IO CInt
 
 
 -- | Wraps an IO action with calls to 'createEndpoint' and 'destroyEndpoint'.
@@ -304,7 +343,7 @@ destroyEndpoint = undefined
 -- Makes sure that 'destroyEndpoint' is called in the presence of errors.
 --
 withEndpoint :: Maybe Device -> ((Endpoint ctx,Fd) -> IO a) -> IO a
-withEndpoint = undefined
+withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 
 
 
@@ -337,9 +376,10 @@ withEndpoint = undefined
 -- This datatype represents connections for endpoints with contexts
 -- of type @ctx@.
 --
-data Connection ctx
+newtype Connection ctx = Connection (Ptr (Connection ctx))
 
 instance Show (Connection ctx)
+
 
 -- | Maximum size of the messages the connection can send.
 connectionMaxSendSize :: Connection ctx -> Word32
@@ -357,7 +397,12 @@ connectionMaxSendSize = undefined
 --
 accept :: Event ctx -- ^ A connection request event previously returned by 'getEvent'
        -> IO (Connection ctx)
-accept = undefined
+accept (Event penv) = alloca$ \ppconn -> do
+    cci_accept penv ppconn >>= cci_check_exception
+    fmap Connection$ peek ppconn
+
+foreign import ccall unsafe cci_accept :: Ptr (Event ctx) -> Ptr (Ptr (Connection ctx)) -> IO CInt
+
 
 
 -- | Rejects a connection request.
@@ -369,7 +414,9 @@ accept = undefined
 --  * driver-specific errors
 --
 reject :: Event ctx -> IO ()
-reject = undefined
+reject (Event penv) = cci_reject penv >>= cci_check_exception
+
+foreign import ccall unsafe cci_reject :: Ptr (Event ctx) -> IO CInt
 
 
 -- | Initiate a connection request (client side).
@@ -396,27 +443,43 @@ reject = undefined
 connect :: Endpoint ctx -- ^ Local endpoint to use for requested connection.
         -> String       -- ^ Uniform Resource Identifier of the server. It is
                         --   accessible when the server's endpoint is created.
-						--
-						--   Examples:
-						--
-						--     * IP address: \"ip://172.31.194.2\"
-						--
+                        --
+                        --   Examples:
+                        --
+                        --     * IP address: \"ip://172.31.194.2\"
+                        --
                         --     * Resolvable name: \"ip://foo.bar.com\"
-						--
+                        --
                         --     * IB LID or GID: \"ib://TBD\"
                         --
-						--     * Blah id: \"blah://crap0123\"
+                        --     * Blah id: \"blah://crap0123\"
                         --
-						--     * With arguments: \"ip://foo.bar.com:eth1,eth3\"
+                        --     * With arguments: \"ip://foo.bar.com:eth1,eth3\"
 
         -> ByteString   -- ^ Connection data to be send in the connection request
                         --   (for authentication, etc). 
         -> ConnectionAttributes -- ^ Attributes of the requested connection (reliability,
                                 --   ordering, multicast, etc).
         -> ctx            -- ^ Context used to identify the connection later.
-        -> Maybe Integer  -- ^ Nothing means \"forever\".
+        -> Maybe Word64   -- ^ Timeout to wait for a connection in microseconds. Nothing means \"forever\". 
         -> IO ()
-connect = undefined
+connect (Endpoint pend) uri bdata ca ctx mtimeout = withCString uri$ \curi ->
+   unsafeUseAsCStringLen bdata$ \(cdata,clen) -> do
+    pctx <- newStablePtr ctx
+    
+    let fconnect ptv = cci_connect pend curi cdata (fromIntegral clen) 
+                                   (fromIntegral$ fromEnum ca) pctx 0 ptv 
+                         >>= cci_check_exception
+    case mtimeout of
+      Nothing -> fconnect nullPtr
+      Just ts -> 
+        let (sec,usec) = divMod ts (10^(6::Int))
+         in allocaBytes (#size struct timeval)$ \ptv -> do
+              (#poke struct timeval, tv_sec) ptv sec
+              (#poke struct timeval, tv_usec) ptv usec
+              fconnect ptv
+
+foreign import ccall unsafe cci_connect :: Ptr (Endpoint ctx) -> CString -> Ptr CChar -> Word32 -> CInt -> StablePtr ctx -> CInt -> Ptr () -> IO CInt
 
 
 -- | Tears down an existing connection.
@@ -427,7 +490,9 @@ connect = undefined
 --
 -- May throw driver-specific errors.
 disconnect :: Connection ctx -> IO ()
-disconnect = undefined
+disconnect (Connection pconn) = cci_connect pconn >>= cci_check_exception
+
+foreign import ccall unsafe cci_connect :: Ptr (Connection ctx) -> IO CInt
 
 
 -- | Connection characteristics.
@@ -450,6 +515,21 @@ data ConnectionAttributes =
 
  deriving Show
 
+
+instance Enum ConnectionAttributes where
+
+  fromEnum CONN_ATTR_RO = #const CCI_CONN_ATTR_RO
+  fromEnum CONN_ATTR_RU = #const CCI_CONN_ATTR_RU
+  fromEnum CONN_ATTR_UU = #const CCI_CONN_ATTR_UU
+  fromEnum CONN_ATTR_UU_MC_TX = #const CCI_CONN_ATTR_UU_MC_TX
+  fromEnum CONN_ATTR_UU_MC_RX = #const CCI_CONN_ATTR_UU_MC_RX
+
+  toEnum (#const CCI_CONN_ATTR_RO) = CONN_ATTR_RO
+  toEnum (#const CCI_CONN_ATTR_RU) = CONN_ATTR_RU
+  toEnum (#const CCI_CONN_ATTR_UU) = CONN_ATTR_UU
+  toEnum (#const CCI_CONN_ATTR_UU_MC_TX) = CONN_ATTR_UU_MC_TX
+  toEnum (#const CCI_CONN_ATTR_UU_MC_RX) = CONN_ATTR_UU_MC_RX
+  toEnum i = error$ "ConnectionAttributes toEnum: unknown value: "++show i
 
 
 ------------------------------------------
@@ -786,7 +866,7 @@ withEventData = undefined
 
 
 -- | Event representation
-data Event ctx
+newtype Event ctx = Event (Ptr (Event ctx))
 
 instance Show (Event ctx)
 
@@ -999,7 +1079,6 @@ data ConnectionOption =
 
 
 
-
 ------------------------------------------
 --
 -- Error handling
@@ -1009,7 +1088,12 @@ data ConnectionOption =
 
 -- | Returns a human readable description of a 'Status' value.
 strError :: Status -> IO String
-strError = undefined
+strError st = do
+     cs <- cci_strerror$ fromIntegral$ fromEnum st
+     if nullPtr == cs then return ""
+       else peekCString cs
+
+foreign import ccall unsafe cci_strerror :: CInt -> IO CString
 
 
 -- | Type of exceptions that can arise when calling cci functions.
@@ -1084,4 +1168,62 @@ data Status =
   | EADDRNOTAVAIL -- ^ Address not available
   | OTHER Int
  deriving (Show,Typeable)
+
+
+cci_check_exception :: CInt -> IO ()
+cci_check_exception (#const CCI_SUCCESS) = return ()
+cci_check_exception c = throwIO$ CCIException$ toEnum$ fromIntegral c
+
+
+instance Enum Status where
+
+ fromEnum c = 
+   case c of
+     SUCCESS             -> (#const CCI_SUCCESS)
+     ERROR               -> (#const CCI_ERROR)
+     ERR_DISCONNECTED    -> (#const CCI_ERR_DISCONNECTED)
+     ERR_RNR             -> (#const CCI_ERR_RNR)
+     ERR_DEVICE_DEAD     -> (#const CCI_ERR_DEVICE_DEAD)
+     ERR_RMA_HANDLE      -> (#const CCI_ERR_RMA_HANDLE)
+     ERR_RMA_OP          -> (#const CCI_ERR_RMA_OP)
+     ERR_NOT_IMPLEMENTED -> (#const CCI_ERR_NOT_IMPLEMENTED)
+     ERR_NOT_FOUND       -> (#const CCI_ERR_NOT_FOUND)
+     EINVAL              -> (#const CCI_EINVAL)
+     ETIMEDOUT           -> (#const CCI_ETIMEDOUT)
+     ENOMEM              -> (#const CCI_ENOMEM)
+     ENODEV              -> (#const CCI_ENODEV)
+     EBUSY               -> (#const CCI_EBUSY)
+     ERANGE              -> (#const CCI_ERANGE)
+     EAGAIN              -> (#const CCI_EAGAIN)
+     ENOBUFS             -> (#const CCI_ENOBUFS)
+     EMSGSIZE            -> (#const CCI_EMSGSIZE)
+     ENOMSG              -> (#const CCI_ENOMSG)
+     EADDRNOTAVAIL       -> (#const CCI_EADDRNOTAVAIL)
+     OTHER co            -> co
+ 
+ toEnum c = 
+   case c of
+     (#const CCI_SUCCESS)             -> SUCCESS
+     (#const CCI_ERROR)               -> ERROR
+     (#const CCI_ERR_DISCONNECTED)    -> ERR_DISCONNECTED
+     (#const CCI_ERR_RNR)             -> ERR_RNR
+     (#const CCI_ERR_DEVICE_DEAD)     -> ERR_DEVICE_DEAD
+     (#const CCI_ERR_RMA_HANDLE)      -> ERR_RMA_HANDLE
+     (#const CCI_ERR_RMA_OP)          -> ERR_RMA_OP
+     (#const CCI_ERR_NOT_IMPLEMENTED) -> ERR_NOT_IMPLEMENTED
+     (#const CCI_ERR_NOT_FOUND)       -> ERR_NOT_FOUND
+     (#const CCI_EINVAL)              -> EINVAL
+     (#const CCI_ETIMEDOUT)           -> ETIMEDOUT
+     (#const CCI_ENOMEM)              -> ENOMEM
+     (#const CCI_ENODEV)              -> ENODEV
+     (#const CCI_EBUSY)               -> EBUSY
+     (#const CCI_ERANGE)              -> ERANGE
+     (#const CCI_EAGAIN)              -> EAGAIN
+     (#const CCI_ENOBUFS)             -> ENOBUFS
+     (#const CCI_EMSGSIZE)            -> EMSGSIZE
+     (#const CCI_ENOMSG)              -> ENOMSG
+     (#const CCI_EADDRNOTAVAIL)       -> EADDRNOTAVAIL
+     _ -> OTHER c
+    
+
 
