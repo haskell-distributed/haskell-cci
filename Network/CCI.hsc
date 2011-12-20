@@ -76,24 +76,21 @@ module Network.CCI
   ) where
 
 import Control.Exception      ( Exception, throwIO, bracket )
-import Control.Monad          ( liftM )
-import Data.ByteString        ( ByteString, packCStringLen )
+import Data.Bits              ( (.|.), shiftR, shiftL, (.&.) )
+import Data.ByteString as B   ( ByteString, packCStringLen, unpack, pack, length )
 import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen )
 import Data.Dynamic           ( Typeable )
-import Data.Word              ( Word32, Word64 )
+import Data.Word              ( Word8, Word32, Word64 )
 import Foreign.C.Types        ( CInt, CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
-import Foreign.Ptr            ( Ptr, nullPtr )
-import Foreign.StablePtr      ( StablePtr, newStablePtr )
+import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
 import Foreign.Storable       ( peek, peekElemOff, pokeByteOff )
 
 import System.Posix.Types     ( Fd )
 
 
-
 #include <cci.h>
-#include <sys/time.h>
 
 
 -- | Initializes CCI. If called more than once, only the
@@ -226,7 +223,7 @@ getDevices = do
     peekNullTerminated p i = do
       d <- peekElemOff p i
       if d == nullPtr then return []
-        else liftM (d:)$ peekNullTerminated p (i+1) 
+        else fmap (d:)$ peekNullTerminated p (i+1) 
 
 
 foreign import ccall unsafe cci_get_devices :: Ptr (Ptr (Ptr Device)) -> IO CInt
@@ -285,9 +282,9 @@ withDevices f = bracket getDevices (freeDevices . snd) (f . fst)
 -- for context values, which is expressed as the @ctx@ type parameter of 'Endpoint's,
 -- 'Connection's and 'Event's.
 --
-newtype Endpoint ctx = Endpoint (Ptr (Endpoint ctx))
+newtype Endpoint = Endpoint (Ptr Endpoint)
 
-instance Show (Endpoint ctx)
+instance Show Endpoint
 
 -- | This function creates a CCI endpoint.
 -- An endpoint is associated with a device that performs the
@@ -315,7 +312,7 @@ instance Show (Endpoint ctx)
 --  * driver-specific errors
 --
 createEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device.
-               -> IO (Endpoint ctx,Fd) -- ^ The endpoint and an operating system handle that can be used
+               -> IO (Endpoint,Fd) -- ^ The endpoint and an operating system handle that can be used
                                    -- to block for progress on this endpoint.
 createEndpoint mdev = alloca$ \ppend ->
     alloca$ \pfd -> do
@@ -324,7 +321,7 @@ createEndpoint mdev = alloca$ \ppend ->
       pend <- peek ppend
       return (Endpoint pend,fd)
 
-foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Ptr (Endpoint ctx)) -> Ptr Fd -> IO CInt
+foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Ptr Endpoint) -> Ptr Fd -> IO CInt
 
 
 -- | Frees resources associated with the endpoint. All open connections 
@@ -332,17 +329,17 @@ foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Pt
 -- invoked on every open connection on this endpoint.
 --
 -- May throw driver-specific errors.
-destroyEndpoint :: Endpoint ctx -> IO ()
+destroyEndpoint :: Endpoint -> IO ()
 destroyEndpoint (Endpoint pend) = cci_destroy_endpoint pend >>= cci_check_exception
 
-foreign import ccall unsafe cci_destroy_endpoint :: Ptr (Endpoint ctx) -> IO CInt
+foreign import ccall unsafe cci_destroy_endpoint :: Ptr Endpoint -> IO CInt
 
 
 -- | Wraps an IO action with calls to 'createEndpoint' and 'destroyEndpoint'.
 --
 -- Makes sure that 'destroyEndpoint' is called in the presence of errors.
 --
-withEndpoint :: Maybe Device -> ((Endpoint ctx,Fd) -> IO a) -> IO a
+withEndpoint :: Maybe Device -> ((Endpoint,Fd) -> IO a) -> IO a
 withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 
 
@@ -376,13 +373,13 @@ withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 -- This datatype represents connections for endpoints with contexts
 -- of type @ctx@.
 --
-newtype Connection ctx = Connection (Ptr (Connection ctx))
+newtype Connection = Connection (Ptr Connection)
 
-instance Show (Connection ctx)
+instance Show Connection
 
 
 -- | Maximum size of the messages the connection can send.
-connectionMaxSendSize :: Connection ctx -> Word32
+connectionMaxSendSize :: Connection -> Word32
 connectionMaxSendSize = undefined
 
 
@@ -395,13 +392,13 @@ connectionMaxSendSize = undefined
 --
 --  * driver-specific errors
 --
-accept :: Event ctx -- ^ A connection request event previously returned by 'getEvent'
-       -> IO (Connection ctx)
+accept :: Event  -- ^ A connection request event previously returned by 'getEvent'
+       -> IO Connection
 accept (Event penv) = alloca$ \ppconn -> do
     cci_accept penv ppconn >>= cci_check_exception
     fmap Connection$ peek ppconn
 
-foreign import ccall unsafe cci_accept :: Ptr (Event ctx) -> Ptr (Ptr (Connection ctx)) -> IO CInt
+foreign import ccall unsafe cci_accept :: Ptr Event -> Ptr (Ptr Connection) -> IO CInt
 
 
 
@@ -413,10 +410,10 @@ foreign import ccall unsafe cci_accept :: Ptr (Event ctx) -> Ptr (Ptr (Connectio
 --
 --  * driver-specific errors
 --
-reject :: Event ctx -> IO ()
+reject :: Event -> IO ()
 reject (Event penv) = cci_reject penv >>= cci_check_exception
 
-foreign import ccall unsafe cci_reject :: Ptr (Event ctx) -> IO CInt
+foreign import ccall unsafe cci_reject :: Ptr Event -> IO CInt
 
 
 -- | Initiate a connection request (client side).
@@ -440,7 +437,7 @@ foreign import ccall unsafe cci_reject :: Ptr (Event ctx) -> IO CInt
 --
 -- May throw device-specific errors.
 --
-connect :: Endpoint ctx -- ^ Local endpoint to use for requested connection.
+connect :: Endpoint     -- ^ Local endpoint to use for requested connection.
         -> String       -- ^ Uniform Resource Identifier of the server. It is
                         --   accessible when the server's endpoint is created.
                         --
@@ -460,15 +457,13 @@ connect :: Endpoint ctx -- ^ Local endpoint to use for requested connection.
                         --   (for authentication, etc). 
         -> ConnectionAttributes -- ^ Attributes of the requested connection (reliability,
                                 --   ordering, multicast, etc).
-        -> ctx            -- ^ Context used to identify the connection later.
+        -> WordPtr        -- ^ Pointer-sized integer used as context to identify the connection later.
         -> Maybe Word64   -- ^ Timeout to wait for a connection in microseconds. Nothing means \"forever\". 
         -> IO ()
-connect (Endpoint pend) uri bdata ca ctx mtimeout = withCString uri$ \curi ->
+connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
    unsafeUseAsCStringLen bdata$ \(cdata,clen) -> do
-    pctx <- newStablePtr ctx
-    
     let fconnect ptv = cci_connect pend curi cdata (fromIntegral clen) 
-                                   (fromIntegral$ fromEnum ca) pctx 0 ptv 
+                                   (fromIntegral$ fromEnum ca) (wordPtrToPtr pctx) 0 ptv 
                          >>= cci_check_exception
     case mtimeout of
       Nothing -> fconnect nullPtr
@@ -479,7 +474,7 @@ connect (Endpoint pend) uri bdata ca ctx mtimeout = withCString uri$ \curi ->
               (#poke struct timeval, tv_usec) ptv usec
               fconnect ptv
 
-foreign import ccall unsafe cci_connect :: Ptr (Endpoint ctx) -> CString -> Ptr CChar -> Word32 -> CInt -> StablePtr ctx -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe cci_connect :: Ptr Endpoint -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
 
 
 -- | Tears down an existing connection.
@@ -489,10 +484,10 @@ foreign import ccall unsafe cci_connect :: Ptr (Endpoint ctx) -> CString -> Ptr 
 -- if sends are initiated on this connection.
 --
 -- May throw driver-specific errors.
-disconnect :: Connection ctx -> IO ()
-disconnect (Connection pconn) = cci_connect pconn >>= cci_check_exception
+disconnect :: Connection -> IO ()
+disconnect (Connection pconn) = cci_disconnect pconn >>= cci_check_exception
 
-foreign import ccall unsafe cci_connect :: Ptr (Connection ctx) -> IO CInt
+foreign import ccall unsafe cci_disconnect :: Ptr Connection -> IO CInt
 
 
 -- | Connection characteristics.
@@ -592,6 +587,8 @@ instance Enum ConnectionAttributes where
 --    completion occurs (which is most useful when FLAG_BLOCKING is
 --    not specified). The CCI implementation is therefore free to use
 --    \"zero copy\" types of transmission with the buffer -- if it wants to.
+--    Make sure to keep alive the memory of the ByteString message 
+--    or it could be garbage collected before the send completes.
 --
 --  * 'FLAG_SILENT' means that no completion will be generated for
 --    non-FLAG_BLOCKING sends. For reliable ordered connections,
@@ -608,8 +605,14 @@ instance Enum ConnectionAttributes where
 --
 -- May throw 'ERR_DISCONNECTED', 'ERR_RNR', or driver-specific errors.
 --
-send :: Connection ctx -> ByteString -> ctx -> [SEND_FLAG] -> IO ()
-send = undefined
+send :: Connection -> ByteString -> WordPtr -> [SEND_FLAG] -> IO ()
+send (Connection pconn) msg pctx flags = unsafeUseAsCStringLen msg$ \(cmsg,clen) -> 
+    let csend = if elem SEND_BLOCKING flags then safe_cci_send else cci_send
+     in csend pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) (fromIntegral$ foldl (\f-> (f.|.) . fromEnum) (0::Int) flags)
+           >>= cci_check_exception
+
+foreign import ccall unsafe cci_send :: Ptr Connection -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall safe "cci_send" safe_cci_send :: Ptr Connection -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
 
 
 -- | Send a short vectored (gather) message.
@@ -621,8 +624,30 @@ send = undefined
 --
 -- May throw driver-specific errors.
 --
-sendv :: Connection ctx -> [ByteString] -> ctx -> [SEND_FLAG] -> IO ()
-sendv = undefined
+sendv :: Connection -> [ByteString] -> WordPtr -> [SEND_FLAG] -> IO ()
+sendv (Connection pconn) msgs pctx flags = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
+    let csendv = if elem SEND_BLOCKING flags then safe_cci_sendv else cci_sendv
+     in allocaBytes (clen*(#size struct iovec))$ \piovecs -> do
+          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
+          csendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) (enumFlags flags)
+             >>= cci_check_exception
+  where
+    unsafeUseAsCStringLens :: [ByteString] -> [CStringLen] -> Int -> ([CStringLen] -> Int -> IO a) -> IO a
+    unsafeUseAsCStringLens (x:xs) acc len f
+        | seq len True = unsafeUseAsCStringLen x$ \cx -> unsafeUseAsCStringLens xs (cx:acc) (len+1) f
+    unsafeUseAsCStringLens _ acc len f = f acc len
+
+    write_iovec piovecs offs (cmsg,clen) = do
+        let p = plusPtr piovecs (offs*(#size struct iovec))
+        (#poke struct iovec, iov_base) p cmsg
+        (#poke struct iovec, iov_len) p clen
+
+
+foreign import ccall unsafe cci_sendv :: Ptr Connection -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall safe "cci_sendv" safe_cci_sendv :: Ptr Connection -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
+
+enumFlags :: (Enum a, Num b) => [a] -> b
+enumFlags = fromIntegral . foldl (\f-> (f.|.) . fromEnum) (0::Int)
 
 
 -- | Flags for 'send' and 'sendv'. See 'send' for details.
@@ -630,6 +655,19 @@ data SEND_FLAG =
     SEND_BLOCKING 
   | SEND_NO_COPY  
   | SEND_SILENT 
+ deriving (Eq, Show)
+
+instance Enum SEND_FLAG where
+
+  fromEnum SEND_BLOCKING = #const CCI_FLAG_BLOCKING
+  fromEnum SEND_NO_COPY = #const CCI_FLAG_NO_COPY
+  fromEnum SEND_SILENT = #const CCI_FLAG_SILENT
+
+  toEnum (#const CCI_FLAG_BLOCKING) = SEND_BLOCKING
+  toEnum (#const CCI_FLAG_NO_COPY) = SEND_NO_COPY
+  toEnum (#const CCI_FLAG_SILENT) = SEND_SILENT
+  toEnum i = error$ "SEND_FLAG toEnum: unknown value: "++show i
+
 
 
 
@@ -669,13 +707,21 @@ data SEND_FLAG =
 --
 --  * driver-specific errors.
 --
-rmaEndpointRegister :: Endpoint ctx -> CStringLen -> IO RMALocalHandle
-rmaEndpointRegister = undefined
+rmaEndpointRegister :: Endpoint -> CStringLen -> IO RMALocalHandle
+rmaEndpointRegister (Endpoint pend) (cbuf,clen) = alloca$ \p ->
+    cci_rma_register pend nullPtr cbuf (fromIntegral clen) p
+      >>= cci_check_exception >> peek p >>= return . RMALocalHandle
+
+foreign import ccall unsafe cci_rma_register :: Ptr Endpoint -> Ptr Connection 
+                                             -> Ptr CChar -> Word64 -> Ptr Word64 -> IO CInt
 
 
 -- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
-rmaConnectionRegister :: Connection ctx -> CStringLen -> IO RMALocalHandle
-rmaConnectionRegister = undefined
+rmaConnectionRegister :: Connection -> CStringLen -> IO RMALocalHandle
+rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p ->
+    cci_rma_register nullPtr pconn cbuf (fromIntegral clen) p
+      >>= cci_check_exception >> peek p >>= return . RMALocalHandle
+
 
 -- | Deregisters memory.
 --
@@ -685,18 +731,21 @@ rmaConnectionRegister = undefined
 -- May throw driver-specific errors.
 --
 rmaDeregister :: RMALocalHandle -> IO ()
-rmaDeregister = undefined
+rmaDeregister (RMALocalHandle w64) = cci_rma_deregister w64 >>= cci_check_exception
+
+foreign import ccall unsafe cci_rma_deregister :: Word64 -> IO CInt
+
 
 -- | Wraps an IO operation with calls to 'rmaEndpointRegister' and 'rmaDeregister'.
 --
 -- This function makes sure to call 'rmaDeregister' even in the presence of errors.
 --
-withEndpointRMALocalHandle :: Endpoint ctx -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
-withEndpointRMALocalHandle = undefined
+withEndpointRMALocalHandle :: Endpoint -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
+withEndpointRMALocalHandle e cs = bracket (rmaEndpointRegister e cs) rmaDeregister
 
 -- | Like 'withEndpointRMAHandle' but uses 'rmaConnectionRegister' instead of 'rmaEndpointRegister'.
-withConnectionRMALocalHandle :: Connection ctx -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
-withConnectionRMALocalHandle = undefined
+withConnectionRMALocalHandle :: Connection -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
+withConnectionRMALocalHandle c cs = bracket (rmaConnectionRegister c cs) rmaDeregister
 
 
 -- | Transfers data in remote memory to local memory.
@@ -738,33 +787,50 @@ withConnectionRMALocalHandle = undefined
 --
 --  * driver-specific errors.
 --
-rmaRead :: Connection ctx      -- ^ Connection used for the RMA transfer.
+rmaRead :: Connection          -- ^ Connection used for the RMA transfer.
         -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
         -> RMALocalHandle      -- ^ Handle to the transfer destination.
         -> Word64              -- ^ Offset inside the destination buffer.
         -> RMARemoteHandle     -- ^ Handle to the transfer source.
         -> Word64              -- ^ Offset inside the source buffer.
         -> Word64              -- ^ Length of the data to transfer.
-        -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
+        -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
         -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
         -> IO ()
-rmaRead = undefined
+rmaRead (Connection pconn) mb (RMALocalHandle lh) lo (RMARemoteHandle rh) ro dlen pctx flags = 
+  let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
+                               (wordPtrToPtr pctx) ((#const CCI_FLAG_READ) .|. enumFlags flags) 
+                           >>= cci_check_exception
+   in case mb of
+       Just b -> unsafeUseAsCStringLen b$ crma
+       Nothing -> crma (nullPtr,0::Int)
+
+foreign import ccall unsafe cci_rma :: Ptr Connection -> Ptr CChar -> Word32 
+                                    -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 
+                                    -> Ptr () -> CInt -> IO CInt
+
 
 -- | Transfers data in local memory to remote memory.
 --
 -- Flags are set the same than for 'rmaRead'.
 --
-rmaWrite :: Connection ctx      -- ^ Connection used for the RMA transfer.
+rmaWrite :: Connection          -- ^ Connection used for the RMA transfer.
          -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
          -> RMARemoteHandle     -- ^ Handle to the transfer destination.
          -> Word64              -- ^ Offset inside the destination buffer.
          -> RMALocalHandle      -- ^ Handle to the transfer source.
          -> Word64              -- ^ Offset inside the source buffer.
          -> Word64              -- ^ Length of the data to transfer.
-         -> ctx                 -- ^ Context to deliver in the local 'EvSend' event.
+         -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
          -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
          -> IO ()
-rmaWrite = undefined
+rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lh) lo dlen pctx flags = 
+  let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
+                               (wordPtrToPtr pctx) ((#const CCI_FLAG_WRITE) .|. enumFlags flags) 
+                           >>= cci_check_exception
+   in case mb of
+       Just b -> unsafeUseAsCStringLen b$ crma
+       Nothing -> crma (nullPtr,0::Int)
 
 
 -- | Flags for 'rmaRead' and 'rmaWrite'.
@@ -775,25 +841,44 @@ data RMA_FLAG =
   | RMA_FENCE
 
 
+instance Enum RMA_FLAG where
+
+  fromEnum RMA_BLOCKING = #const CCI_FLAG_BLOCKING
+  fromEnum RMA_NO_COPY = #const CCI_FLAG_NO_COPY
+  fromEnum RMA_SILENT = #const CCI_FLAG_SILENT
+  fromEnum RMA_FENCE = #const CCI_FLAG_FENCE
+
+  toEnum (#const CCI_FLAG_BLOCKING) = RMA_BLOCKING
+  toEnum (#const CCI_FLAG_NO_COPY) = RMA_NO_COPY
+  toEnum (#const CCI_FLAG_SILENT) = RMA_SILENT
+  toEnum (#const CCI_FLAG_FENCE) = RMA_FENCE
+  toEnum i = error$ "RMA_FLAG toEnum: unknown value: "++show i
+
+
 
 -- | RMA local handles have an associated buffer in local memory
 -- which is read or written during RMA operations.
 --
-data RMALocalHandle 
+newtype RMALocalHandle = RMALocalHandle Word64
 
 -- | RMA remote handles have an associated buffer in a remote location
 -- which is read or written during RMA operations.
 --
-data RMARemoteHandle 
+newtype RMARemoteHandle = RMARemoteHandle Word64
 
 -- | Gets a ByteString representation of the handle which can be sent to a peer.
 rmaHandle2ByteString :: RMALocalHandle -> ByteString
-rmaHandle2ByteString = undefined
+rmaHandle2ByteString (RMALocalHandle w64) = pack [ fromIntegral ((w64 `shiftR` i) .&. 255)  | i<-[56,48..0] ]
 
 -- | Creates a remote handle from a ByteString representation of a remote
 -- handle (has to have arrived through an active message).
 createRMARemoteHandle :: ByteString -> Maybe RMARemoteHandle
-createRMARemoteHandle = undefined
+createRMARemoteHandle b = case B.length b of
+                            8 -> Just$ RMARemoteHandle$ toWord64$ unpack b
+                            _ -> Nothing
+  where 
+    toWord64 :: [Word8] -> Word64
+    toWord64 = foldl (\w64 w8 -> (w64 `shiftL` 8) .|. fromIntegral w8) 0
 
 
 
@@ -824,7 +909,7 @@ createRMARemoteHandle = undefined
 -- The garbage collector will call 'returnEvent' if there are no
 -- references to the returned event and memory is claimed.
 --
-getEvent :: Endpoint ctx -> Maybe (Event ctx)
+getEvent :: Endpoint -> Maybe Event
 getEvent = undefined
 
 
@@ -841,7 +926,7 @@ getEvent = undefined
 --
 -- May throw driver-specific errors.
 --
-returnEvent :: Event ctx -> IO ()
+returnEvent :: Event -> IO ()
 returnEvent = undefined
 
 
@@ -856,8 +941,8 @@ returnEvent = undefined
 -- 'Control.Exception.mask' in combination with 'getEvent'.
 --
 withEventData :: BufferHandler buffer => 
-   Endpoint ctx   -- ^ Endpoint on which to listen for events.
-   -> ((forall b. IO b -> IO b) -> Maybe (EventData ctx buffer) -> IO a) 
+   Endpoint   -- ^ Endpoint on which to listen for events.
+   -> ((forall b. IO b -> IO b) -> Maybe (EventData buffer) -> IO a) 
             -- ^ The callback takes a function which can be used to restore
             --   the blocking state of asynchronous exceptions which existed
             --   at the time 'withEventData' is computed.
@@ -866,13 +951,13 @@ withEventData = undefined
 
 
 -- | Event representation
-newtype Event ctx = Event (Ptr (Event ctx))
+newtype Event = Event (Ptr Event)
 
-instance Show (Event ctx)
+instance Show Event
 
 
 -- | Retrieves the public data contained in an event.
-getEventData :: BufferHandler buffer => Event ctx -> IO (EventData ctx buffer)
+getEventData :: BufferHandler buffer => Event -> IO (EventData buffer)
 getEventData = undefined
 
 -- | Determines how a buffer is to be treated.
@@ -906,7 +991,7 @@ instance BufferHandler CStringLen where
 
 
 -- | Representation of data contained in events.
-data EventData ctx buffer =
+data EventData buffer =
 
     -- | A 'send' or 'rmaRead' has completed.
     --
@@ -922,7 +1007,7 @@ data EventData ctx buffer =
     -- Contains the context provided to 'send', the result of the 
     -- send and the connection.
     --
-    EvSend ctx Status (Connection ctx)
+    EvSend WordPtr Status Connection
 
     -- | An active message has been received.
     --
@@ -931,14 +1016,14 @@ data EventData ctx buffer =
     -- Contains the transmitted data which is valid as long as the event
     -- is not returned ('returnEvent').
     -- 
-  | EvRecv buffer (Connection ctx)
+  | EvRecv buffer Connection
 
     -- | A new outgoing connection was successfully accepted at the
     -- peer; a connection is now available for data transfer.
     --
     -- Contains the context given to 'connect'.
     --
-  | EvConnectAccepted ctx (Connection ctx)
+  | EvConnectAccepted WordPtr Connection
 
     -- | A new outgoing connection did not complete the accept/connect
     -- handshake with the peer in the time specified as argument to
@@ -947,13 +1032,13 @@ data EventData ctx buffer =
     --
     -- Contains the context given to 'connect'.
     --
-  | EvConnectTimedOut ctx
+  | EvConnectTimedOut WordPtr
 
     -- | A new outgoing connection was rejected by the server.
     --
     -- Contains the context given to 'connect'.
     --
-  | EvConnectRejected ctx
+  | EvConnectRejected WordPtr
 
     -- | An incoming connection request from a client.
     --
@@ -961,18 +1046,18 @@ data EventData ctx buffer =
     -- connection attributes and a reference to the event
     -- for convenience to call 'accept' and 'reject'.
     --
-  | EvConnectRequest (Event ctx) buffer ConnectionAttributes
+  | EvConnectRequest Event buffer ConnectionAttributes
 
     -- | The keepalive timeout has expired, i.e. no data from the
     -- peer has been received during that time period
     -- (see'OPT_ENDPT_KEEPALIVE_TIMEOUT' for more details).
     --
-  | EvKeepAliveTimedOut (Connection ctx)
+  | EvKeepAliveTimedOut Connection
 
     -- | A device on this endpoint has failed.
     --
     -- Contains the endpoint on the device that failed.
-  | EvEndpointDeviceFailed (Endpoint ctx)
+  | EvEndpointDeviceFailed Endpoint
 
  deriving Show
 
@@ -994,7 +1079,7 @@ data EventData ctx buffer =
 --
 --  * driver-specific errors.
 --
-setConnectionOpt :: Connection ctx -> ConnectionOption -> Word32 -> IO ()
+setConnectionOpt :: Connection -> ConnectionOption -> Word32 -> IO ()
 setConnectionOpt = undefined
 
 -- | Sets an endpoint option value
@@ -1005,7 +1090,7 @@ setConnectionOpt = undefined
 --
 --  * driver-specific errors.
 --
-setEndpointOpt :: Endpoint ctx -> EndpointOption -> Word32 -> IO ()
+setEndpointOpt :: Endpoint -> EndpointOption -> Word32 -> IO ()
 setEndpointOpt = undefined
 
 -- | Retrieves a connection option value.
@@ -1016,7 +1101,7 @@ setEndpointOpt = undefined
 --
 --  * driver-specific errors.
 --
-getConnectionOpt :: Connection ctx -> ConnectionOption -> IO Word32
+getConnectionOpt :: Connection -> ConnectionOption -> IO Word32
 getConnectionOpt = undefined
 
 -- | Retrieves an endpoint option value.
@@ -1027,7 +1112,7 @@ getConnectionOpt = undefined
 -- 
 --  * driver-specific errors.
 --
-getEndpointOpt :: Endpoint ctx -> EndpointOption -> IO Word32
+getEndpointOpt :: Endpoint -> EndpointOption -> IO Word32
 getEndpointOpt = undefined
 
 
