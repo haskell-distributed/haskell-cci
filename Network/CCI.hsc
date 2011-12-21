@@ -23,6 +23,7 @@ module Network.CCI
   , createEndpoint
   , destroyEndpoint
   , withEndpoint
+  , endpointURI
   -- * Connections
   , Connection
   , connectionMaxSendSize
@@ -75,7 +76,8 @@ module Network.CCI
   , Status(..)
   ) where
 
-import Control.Exception      ( Exception, throwIO, bracket )
+import Control.Exception      ( Exception, throwIO, bracket, onException, mask_ )
+import Control.Monad          ( liftM2, liftM3, join )
 import Data.Bits              ( (.|.), shiftR, shiftL, (.&.) )
 import Data.ByteString as B   ( ByteString, packCStringLen, unpack, pack, length )
 import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen )
@@ -83,9 +85,9 @@ import Data.Dynamic           ( Typeable )
 import Data.Word              ( Word8, Word32, Word64 )
 import Foreign.C.Types        ( CInt, CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
-import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr )
+import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
-import Foreign.Storable       ( peek, peekElemOff, pokeByteOff )
+import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff, sizeOf) )
 
 import System.Posix.Types     ( Fd )
 
@@ -183,7 +185,7 @@ import System.Posix.Types     ( Fd )
 --
 --  * driver-specific errors.
 initCCI :: IO ()
-initCCI = cci_init (#const CCI_ABI_VERSION) 0 nullPtr  >>= cci_check_exception
+initCCI = alloca$ \p -> poke p 0 >> cci_init #{const CCI_ABI_VERSION} 0 p  >>= cci_check_exception
 
 foreign import ccall unsafe cci_init :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
 
@@ -282,9 +284,11 @@ withDevices f = bracket getDevices (freeDevices . snd) (f . fst)
 -- for context values, which is expressed as the @ctx@ type parameter of 'Endpoint's,
 -- 'Connection's and 'Event's.
 --
-newtype Endpoint = Endpoint (Ptr Endpoint)
+newtype Endpoint = Endpoint (Ptr EndpointV)
+  deriving (Storable, Show)
 
-instance Show Endpoint
+data EndpointV
+
 
 -- | This function creates a CCI endpoint.
 -- An endpoint is associated with a device that performs the
@@ -317,11 +321,9 @@ createEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the syst
 createEndpoint mdev = alloca$ \ppend ->
     alloca$ \pfd -> do
       cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend pfd >>= cci_check_exception
-      fd <- peek pfd
-      pend <- peek ppend
-      return (Endpoint pend,fd)
+      liftM2 ((,)) (peek ppend) (peek pfd)
 
-foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Ptr Endpoint) -> Ptr Fd -> IO CInt
+foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr Endpoint -> Ptr Fd -> IO CInt
 
 
 -- | Frees resources associated with the endpoint. All open connections 
@@ -332,7 +334,7 @@ foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr (Pt
 destroyEndpoint :: Endpoint -> IO ()
 destroyEndpoint (Endpoint pend) = cci_destroy_endpoint pend >>= cci_check_exception
 
-foreign import ccall unsafe cci_destroy_endpoint :: Ptr Endpoint -> IO CInt
+foreign import ccall unsafe cci_destroy_endpoint :: Ptr EndpointV -> IO CInt
 
 
 -- | Wraps an IO action with calls to 'createEndpoint' and 'destroyEndpoint'.
@@ -343,6 +345,10 @@ withEndpoint :: Maybe Device -> ((Endpoint,Fd) -> IO a) -> IO a
 withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 
 
+-- | Driver created URI of the endpoint. May be passed to clients out-of-band
+-- to pass to 'connect'. The application should never need to parse this URI.
+endpointURI :: Endpoint -> IO String
+endpointURI (Endpoint pend) = #{peek cci_endpoint_t, name} pend >>= peekCString
 
 
 ------------------------------------------
@@ -373,14 +379,15 @@ withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 -- This datatype represents connections for endpoints with contexts
 -- of type @ctx@.
 --
-newtype Connection = Connection (Ptr Connection)
+newtype Connection = Connection (Ptr ConnectionV)
+  deriving (Storable, Show)
 
-instance Show Connection
+data ConnectionV
 
 
 -- | Maximum size of the messages the connection can send.
-connectionMaxSendSize :: Connection -> Word32
-connectionMaxSendSize = undefined
+connectionMaxSendSize :: Connection -> IO Word32
+connectionMaxSendSize (Connection pconn) = #{peek cci_connection_t, max_send_size} pconn
 
 
 -- | Accepts a connection request and establish a connection with a 
@@ -394,11 +401,10 @@ connectionMaxSendSize = undefined
 --
 accept :: Event  -- ^ A connection request event previously returned by 'getEvent'
        -> IO Connection
-accept (Event penv) = alloca$ \ppconn -> do
-    cci_accept penv ppconn >>= cci_check_exception
-    fmap Connection$ peek ppconn
+accept (Event penv) = alloca$ \ppconn ->
+    cci_accept penv ppconn >>= cci_check_exception >> peek ppconn
 
-foreign import ccall unsafe cci_accept :: Ptr Event -> Ptr (Ptr Connection) -> IO CInt
+foreign import ccall unsafe cci_accept :: Ptr EventV -> Ptr Connection -> IO CInt
 
 
 
@@ -413,7 +419,7 @@ foreign import ccall unsafe cci_accept :: Ptr Event -> Ptr (Ptr Connection) -> I
 reject :: Event -> IO ()
 reject (Event penv) = cci_reject penv >>= cci_check_exception
 
-foreign import ccall unsafe cci_reject :: Ptr Event -> IO CInt
+foreign import ccall unsafe cci_reject :: Ptr EventV -> IO CInt
 
 
 -- | Initiate a connection request (client side).
@@ -469,12 +475,12 @@ connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
       Nothing -> fconnect nullPtr
       Just ts -> 
         let (sec,usec) = divMod ts (10^(6::Int))
-         in allocaBytes (#size struct timeval)$ \ptv -> do
-              (#poke struct timeval, tv_sec) ptv sec
-              (#poke struct timeval, tv_usec) ptv usec
+         in allocaBytes #{size struct timeval}$ \ptv -> do
+              #{poke struct timeval, tv_sec} ptv sec
+              #{poke struct timeval, tv_usec} ptv usec
               fconnect ptv
 
-foreign import ccall unsafe cci_connect :: Ptr Endpoint -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe cci_connect :: Ptr EndpointV -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
 
 
 -- | Tears down an existing connection.
@@ -487,7 +493,7 @@ foreign import ccall unsafe cci_connect :: Ptr Endpoint -> CString -> Ptr CChar 
 disconnect :: Connection -> IO ()
 disconnect (Connection pconn) = cci_disconnect pconn >>= cci_check_exception
 
-foreign import ccall unsafe cci_disconnect :: Ptr Connection -> IO CInt
+foreign import ccall unsafe cci_disconnect :: Ptr ConnectionV -> IO CInt
 
 
 -- | Connection characteristics.
@@ -519,11 +525,11 @@ instance Enum ConnectionAttributes where
   fromEnum CONN_ATTR_UU_MC_TX = #const CCI_CONN_ATTR_UU_MC_TX
   fromEnum CONN_ATTR_UU_MC_RX = #const CCI_CONN_ATTR_UU_MC_RX
 
-  toEnum (#const CCI_CONN_ATTR_RO) = CONN_ATTR_RO
-  toEnum (#const CCI_CONN_ATTR_RU) = CONN_ATTR_RU
-  toEnum (#const CCI_CONN_ATTR_UU) = CONN_ATTR_UU
-  toEnum (#const CCI_CONN_ATTR_UU_MC_TX) = CONN_ATTR_UU_MC_TX
-  toEnum (#const CCI_CONN_ATTR_UU_MC_RX) = CONN_ATTR_UU_MC_RX
+  toEnum #{const CCI_CONN_ATTR_RO} = CONN_ATTR_RO
+  toEnum #{const CCI_CONN_ATTR_RU} = CONN_ATTR_RU
+  toEnum #{const CCI_CONN_ATTR_UU} = CONN_ATTR_UU
+  toEnum #{const CCI_CONN_ATTR_UU_MC_TX} = CONN_ATTR_UU_MC_TX
+  toEnum #{const CCI_CONN_ATTR_UU_MC_RX} = CONN_ATTR_UU_MC_RX
   toEnum i = error$ "ConnectionAttributes toEnum: unknown value: "++show i
 
 
@@ -611,8 +617,8 @@ send (Connection pconn) msg pctx flags = unsafeUseAsCStringLen msg$ \(cmsg,clen)
      in csend pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) (fromIntegral$ foldl (\f-> (f.|.) . fromEnum) (0::Int) flags)
            >>= cci_check_exception
 
-foreign import ccall unsafe cci_send :: Ptr Connection -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
-foreign import ccall safe "cci_send" safe_cci_send :: Ptr Connection -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall unsafe cci_send :: Ptr ConnectionV -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
 
 
 -- | Send a short vectored (gather) message.
@@ -627,7 +633,7 @@ foreign import ccall safe "cci_send" safe_cci_send :: Ptr Connection -> Ptr CCha
 sendv :: Connection -> [ByteString] -> WordPtr -> [SEND_FLAG] -> IO ()
 sendv (Connection pconn) msgs pctx flags = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
     let csendv = if elem SEND_BLOCKING flags then safe_cci_sendv else cci_sendv
-     in allocaBytes (clen*(#size struct iovec))$ \piovecs -> do
+     in allocaBytes (clen * #{size struct iovec})$ \piovecs -> do
           sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
           csendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) (enumFlags flags)
              >>= cci_check_exception
@@ -638,13 +644,13 @@ sendv (Connection pconn) msgs pctx flags = unsafeUseAsCStringLens msgs [] 0$ \cm
     unsafeUseAsCStringLens _ acc len f = f acc len
 
     write_iovec piovecs offs (cmsg,clen) = do
-        let p = plusPtr piovecs (offs*(#size struct iovec))
-        (#poke struct iovec, iov_base) p cmsg
-        (#poke struct iovec, iov_len) p clen
+        let p = plusPtr piovecs (offs * #{size struct iovec})
+        #{poke struct iovec, iov_base} p cmsg
+        #{poke struct iovec, iov_len} p clen
 
 
-foreign import ccall unsafe cci_sendv :: Ptr Connection -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
-foreign import ccall safe "cci_sendv" safe_cci_sendv :: Ptr Connection -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall unsafe cci_sendv :: Ptr ConnectionV -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
+foreign import ccall safe "cci_sendv" safe_cci_sendv :: Ptr ConnectionV -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
 
 enumFlags :: (Enum a, Num b) => [a] -> b
 enumFlags = fromIntegral . foldl (\f-> (f.|.) . fromEnum) (0::Int)
@@ -663,9 +669,9 @@ instance Enum SEND_FLAG where
   fromEnum SEND_NO_COPY = #const CCI_FLAG_NO_COPY
   fromEnum SEND_SILENT = #const CCI_FLAG_SILENT
 
-  toEnum (#const CCI_FLAG_BLOCKING) = SEND_BLOCKING
-  toEnum (#const CCI_FLAG_NO_COPY) = SEND_NO_COPY
-  toEnum (#const CCI_FLAG_SILENT) = SEND_SILENT
+  toEnum #{const CCI_FLAG_BLOCKING} = SEND_BLOCKING
+  toEnum #{const CCI_FLAG_NO_COPY} = SEND_NO_COPY
+  toEnum #{const CCI_FLAG_SILENT} = SEND_SILENT
   toEnum i = error$ "SEND_FLAG toEnum: unknown value: "++show i
 
 
@@ -710,17 +716,17 @@ instance Enum SEND_FLAG where
 rmaEndpointRegister :: Endpoint -> CStringLen -> IO RMALocalHandle
 rmaEndpointRegister (Endpoint pend) (cbuf,clen) = alloca$ \p ->
     cci_rma_register pend nullPtr cbuf (fromIntegral clen) p
-      >>= cci_check_exception >> peek p >>= return . RMALocalHandle
+      >>= cci_check_exception >> peek p
 
-foreign import ccall unsafe cci_rma_register :: Ptr Endpoint -> Ptr Connection 
-                                             -> Ptr CChar -> Word64 -> Ptr Word64 -> IO CInt
+foreign import ccall unsafe cci_rma_register :: Ptr EndpointV -> Ptr ConnectionV 
+                                             -> Ptr CChar -> Word64 -> Ptr RMALocalHandle -> IO CInt
 
 
 -- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
 rmaConnectionRegister :: Connection -> CStringLen -> IO RMALocalHandle
 rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p ->
     cci_rma_register nullPtr pconn cbuf (fromIntegral clen) p
-      >>= cci_check_exception >> peek p >>= return . RMALocalHandle
+      >>= cci_check_exception >> peek p
 
 
 -- | Deregisters memory.
@@ -799,13 +805,13 @@ rmaRead :: Connection          -- ^ Connection used for the RMA transfer.
         -> IO ()
 rmaRead (Connection pconn) mb (RMALocalHandle lh) lo (RMARemoteHandle rh) ro dlen pctx flags = 
   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
-                               (wordPtrToPtr pctx) ((#const CCI_FLAG_READ) .|. enumFlags flags) 
+                               (wordPtrToPtr pctx) (#{const CCI_FLAG_READ} .|. enumFlags flags) 
                            >>= cci_check_exception
    in case mb of
        Just b -> unsafeUseAsCStringLen b$ crma
        Nothing -> crma (nullPtr,0::Int)
 
-foreign import ccall unsafe cci_rma :: Ptr Connection -> Ptr CChar -> Word32 
+foreign import ccall unsafe cci_rma :: Ptr ConnectionV -> Ptr CChar -> Word32 
                                     -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 
                                     -> Ptr () -> CInt -> IO CInt
 
@@ -826,7 +832,7 @@ rmaWrite :: Connection          -- ^ Connection used for the RMA transfer.
          -> IO ()
 rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lh) lo dlen pctx flags = 
   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
-                               (wordPtrToPtr pctx) ((#const CCI_FLAG_WRITE) .|. enumFlags flags) 
+                               (wordPtrToPtr pctx) (#{const CCI_FLAG_WRITE} .|. enumFlags flags) 
                            >>= cci_check_exception
    in case mb of
        Just b -> unsafeUseAsCStringLen b$ crma
@@ -848,10 +854,10 @@ instance Enum RMA_FLAG where
   fromEnum RMA_SILENT = #const CCI_FLAG_SILENT
   fromEnum RMA_FENCE = #const CCI_FLAG_FENCE
 
-  toEnum (#const CCI_FLAG_BLOCKING) = RMA_BLOCKING
-  toEnum (#const CCI_FLAG_NO_COPY) = RMA_NO_COPY
-  toEnum (#const CCI_FLAG_SILENT) = RMA_SILENT
-  toEnum (#const CCI_FLAG_FENCE) = RMA_FENCE
+  toEnum #{const CCI_FLAG_BLOCKING} = RMA_BLOCKING
+  toEnum #{const CCI_FLAG_NO_COPY} = RMA_NO_COPY
+  toEnum #{const CCI_FLAG_SILENT} = RMA_SILENT
+  toEnum #{const CCI_FLAG_FENCE} = RMA_FENCE
   toEnum i = error$ "RMA_FLAG toEnum: unknown value: "++show i
 
 
@@ -860,11 +866,13 @@ instance Enum RMA_FLAG where
 -- which is read or written during RMA operations.
 --
 newtype RMALocalHandle = RMALocalHandle Word64
+  deriving Storable
 
 -- | RMA remote handles have an associated buffer in a remote location
 -- which is read or written during RMA operations.
 --
 newtype RMARemoteHandle = RMARemoteHandle Word64
+
 
 -- | Gets a ByteString representation of the handle which can be sent to a peer.
 rmaHandle2ByteString :: RMALocalHandle -> ByteString
@@ -909,8 +917,15 @@ createRMARemoteHandle b = case B.length b of
 -- The garbage collector will call 'returnEvent' if there are no
 -- references to the returned event and memory is claimed.
 --
-getEvent :: Endpoint -> Maybe Event
-getEvent = undefined
+getEvent :: Endpoint -> IO (Maybe Event)
+getEvent (Endpoint pend) = alloca$ \pev -> do
+    st <- cci_get_event pend pev
+    case st of
+      #{const CCI_EAGAIN} -> return Nothing
+      _ -> cci_check_exception st >> fmap Just (peek pev)
+
+
+foreign import ccall unsafe cci_get_event :: Ptr EndpointV -> Ptr Event -> IO CInt
 
 
 -- | This function gives back to the CCI implementation the 
@@ -927,7 +942,9 @@ getEvent = undefined
 -- May throw driver-specific errors.
 --
 returnEvent :: Event -> IO ()
-returnEvent = undefined
+returnEvent (Event pev) = cci_return_event pev >>= cci_check_exception
+
+foreign import ccall unsafe cci_return_event :: Ptr EventV -> IO CInt
 
 
 -- | Wraps an IO action with calls to 'getEvent', 'getEventData' and 'returnEvent'.
@@ -942,23 +959,63 @@ returnEvent = undefined
 --
 withEventData :: BufferHandler buffer => 
    Endpoint   -- ^ Endpoint on which to listen for events.
-   -> ((forall b. IO b -> IO b) -> Maybe (EventData buffer) -> IO a) 
-            -- ^ The callback takes a function which can be used to restore
-            --   the blocking state of asynchronous exceptions which existed
-            --   at the time 'withEventData' is computed.
+   -> (Maybe (EventData buffer) -> IO a) 
    -> IO a  -- ^ Yields the callback result.
-withEventData = undefined
+withEventData endp f = mask_$ do
+    mev <- getEvent endp 
+    case mev of
+      Nothing -> f Nothing
+      Just ev -> do
+          evd <- getEventData ev
+          r <- f (Just evd) `onException` returnEvent ev
+          returnEvent ev
+          return r
 
 
 -- | Event representation
-newtype Event = Event (Ptr Event)
+newtype Event = Event (Ptr EventV)
+  deriving (Storable, Show)
 
-instance Show Event
+data EventV
 
 
 -- | Retrieves the public data contained in an event.
 getEventData :: BufferHandler buffer => Event -> IO (EventData buffer)
-getEventData = undefined
+getEventData ev@(Event pev) = do
+    st <- #{peek cci_event_t, type} pev
+    case st::CInt of
+      #{const CCI_EVENT_SEND} -> 
+          liftM3 EvSend (#{peek cci_event_send_t, context} pev)
+                        (fmap ctoEnum$  #{peek cci_event_send_t, status} pev)
+                        (#{peek cci_event_send_t, connection} pev)
+      #{const CCI_EVENT_RECV} -> 
+          liftM2 EvRecv (join$ liftM2 cmkBuffer
+                                      (#{peek cci_event_recv_t, ptr} pev) 
+                                      (#{peek cci_event_recv_t, len} pev))
+                        (#{peek cci_event_recv_t, connection} pev)
+      #{const CCI_EVENT_CONNECT_ACCEPTED} -> 
+          liftM2 EvConnectAccepted (fmap ptrToWordPtr$ #{peek cci_event_connect_accepted_t, context} pev) 
+                                   (#{peek cci_event_recv_t, connection} pev)
+      #{const CCI_EVENT_CONNECT_TIMEDOUT} -> 
+          fmap EvConnectTimedOut (#{peek cci_event_connect_timedout_t, context} pev) 
+      #{const CCI_EVENT_CONNECT_REJECTED} -> 
+          fmap EvConnectRejected (#{peek cci_event_connect_rejected_t, context} pev) 
+      #{const CCI_EVENT_CONNECT_REQUEST} -> 
+          liftM2 (EvConnectRequest ev) (join$ liftM2 cmkBuffer
+                                              (#{peek cci_event_connect_request_t, data_ptr} pev) 
+                                              (#{peek cci_event_connect_request_t, data_len} pev))
+                                       (fmap ctoEnum$ #{peek cci_event_connect_request_t, attribute} pev)
+      #{const CCI_EVENT_KEEPALIVE_TIMEDOUT} -> 
+          fmap EvKeepAliveTimedOut (#{peek cci_event_keepalive_timedout_t, connection} pev) 
+      #{const CCI_EVENT_ENDPOINT_DEVICE_FAILED} -> 
+          fmap EvEndpointDeviceFailed (#{peek cci_event_endpoint_device_failed_t, endpoint} pev) 
+          
+      _ -> error$ "getEventData: unexpected event type: "++show st
+  where
+    cmkBuffer p len = mkBuffer (p,fromIntegral (len::CInt))
+    ctoEnum :: Enum a => CInt -> a
+    ctoEnum = toEnum . fromIntegral
+
 
 -- | Determines how a buffer is to be treated.
 --
@@ -1080,7 +1137,15 @@ data EventData buffer =
 --  * driver-specific errors.
 --
 setConnectionOpt :: Connection -> ConnectionOption -> Word32 -> IO ()
-setConnectionOpt = undefined
+setConnectionOpt (Connection pconn) co v = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+    alloca$ \pv -> do
+      poke pv v
+      #{poke cci_opt_handle_t, connection} ph pconn
+      cci_set_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv (fromIntegral$ sizeOf v)
+        >>= cci_check_exception
+
+foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> CInt -> Ptr Word32 -> CInt -> IO CInt
+
 
 -- | Sets an endpoint option value
 --
@@ -1091,7 +1156,13 @@ setConnectionOpt = undefined
 --  * driver-specific errors.
 --
 setEndpointOpt :: Endpoint -> EndpointOption -> Word32 -> IO ()
-setEndpointOpt = undefined
+setEndpointOpt (Endpoint pend) eo v = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+    alloca$ \pv -> do
+      poke pv v
+      #{poke cci_opt_handle_t, endpoint} ph pend
+      cci_set_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv (fromIntegral$ sizeOf v)
+        >>= cci_check_exception
+
 
 -- | Retrieves a connection option value.
 --
@@ -1102,7 +1173,15 @@ setEndpointOpt = undefined
 --  * driver-specific errors.
 --
 getConnectionOpt :: Connection -> ConnectionOption -> IO Word32
-getConnectionOpt = undefined
+getConnectionOpt (Connection pconn) co = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+    alloca$ \pv -> alloca$ \pl -> do
+      #{poke cci_opt_handle_t, connection} ph pconn
+      cci_get_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv pl
+        >>= cci_check_exception
+      peek pv >>= peek
+
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr Word32) -> Ptr CInt -> IO CInt
+
 
 -- | Retrieves an endpoint option value.
 --
@@ -1113,7 +1192,12 @@ getConnectionOpt = undefined
 --  * driver-specific errors.
 --
 getEndpointOpt :: Endpoint -> EndpointOption -> IO Word32
-getEndpointOpt = undefined
+getEndpointOpt (Endpoint pend) eo = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+    alloca$ \pv -> alloca$ \pl -> do
+      #{poke cci_opt_handle_t, endpoint} ph pend
+      cci_get_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv pl
+        >>= cci_check_exception
+      peek pv >>= peek
 
 
 
@@ -1157,11 +1241,33 @@ data EndpointOption =
   | OPT_ENDPT_KEEPALIVE_TIMEOUT
 
 
+instance Enum EndpointOption where
+
+  toEnum #{const CCI_OPT_ENDPT_SEND_TIMEOUT} = OPT_ENDPT_SEND_TIMEOUT
+  toEnum #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} = OPT_ENDPT_RECV_BUF_COUNT
+  toEnum #{const CCI_OPT_ENDPT_SEND_BUF_COUNT} = OPT_ENDPT_SEND_BUF_COUNT
+  toEnum #{const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT} = OPT_ENDPT_KEEPALIVE_TIMEOUT
+  toEnum v = error$ "EndpointOption toEnum: unknown option value: "++show v
+
+  fromEnum OPT_ENDPT_SEND_TIMEOUT = #const CCI_OPT_ENDPT_SEND_TIMEOUT
+  fromEnum OPT_ENDPT_RECV_BUF_COUNT = #const CCI_OPT_ENDPT_RECV_BUF_COUNT
+  fromEnum OPT_ENDPT_SEND_BUF_COUNT = #const CCI_OPT_ENDPT_SEND_BUF_COUNT
+  fromEnum OPT_ENDPT_KEEPALIVE_TIMEOUT = #const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT
+ 
+
+
 -- | Connection options
 data ConnectionOption =
     -- | Reliable send timeout in microseconds.
     OPT_CONN_SEND_TIMEOUT 
 
+instance Enum ConnectionOption where
+
+  toEnum #{const CCI_OPT_CONN_SEND_TIMEOUT} = OPT_CONN_SEND_TIMEOUT
+  toEnum v = error$ "ConnectionOption toEnum: unknown option value: "++show v
+
+  fromEnum OPT_CONN_SEND_TIMEOUT = #const CCI_OPT_CONN_SEND_TIMEOUT
+  
 
 
 ------------------------------------------
@@ -1256,7 +1362,7 @@ data Status =
 
 
 cci_check_exception :: CInt -> IO ()
-cci_check_exception (#const CCI_SUCCESS) = return ()
+cci_check_exception #{const CCI_SUCCESS} = return ()
 cci_check_exception c = throwIO$ CCIException$ toEnum$ fromIntegral c
 
 
@@ -1264,50 +1370,50 @@ instance Enum Status where
 
  fromEnum c = 
    case c of
-     SUCCESS             -> (#const CCI_SUCCESS)
-     ERROR               -> (#const CCI_ERROR)
-     ERR_DISCONNECTED    -> (#const CCI_ERR_DISCONNECTED)
-     ERR_RNR             -> (#const CCI_ERR_RNR)
-     ERR_DEVICE_DEAD     -> (#const CCI_ERR_DEVICE_DEAD)
-     ERR_RMA_HANDLE      -> (#const CCI_ERR_RMA_HANDLE)
-     ERR_RMA_OP          -> (#const CCI_ERR_RMA_OP)
-     ERR_NOT_IMPLEMENTED -> (#const CCI_ERR_NOT_IMPLEMENTED)
-     ERR_NOT_FOUND       -> (#const CCI_ERR_NOT_FOUND)
-     EINVAL              -> (#const CCI_EINVAL)
-     ETIMEDOUT           -> (#const CCI_ETIMEDOUT)
-     ENOMEM              -> (#const CCI_ENOMEM)
-     ENODEV              -> (#const CCI_ENODEV)
-     EBUSY               -> (#const CCI_EBUSY)
-     ERANGE              -> (#const CCI_ERANGE)
-     EAGAIN              -> (#const CCI_EAGAIN)
-     ENOBUFS             -> (#const CCI_ENOBUFS)
-     EMSGSIZE            -> (#const CCI_EMSGSIZE)
-     ENOMSG              -> (#const CCI_ENOMSG)
-     EADDRNOTAVAIL       -> (#const CCI_EADDRNOTAVAIL)
+     SUCCESS             -> #{const CCI_SUCCESS}
+     ERROR               -> #{const CCI_ERROR}
+     ERR_DISCONNECTED    -> #{const CCI_ERR_DISCONNECTED}
+     ERR_RNR             -> #{const CCI_ERR_RNR}
+     ERR_DEVICE_DEAD     -> #{const CCI_ERR_DEVICE_DEAD}
+     ERR_RMA_HANDLE      -> #{const CCI_ERR_RMA_HANDLE}
+     ERR_RMA_OP          -> #{const CCI_ERR_RMA_OP}
+     ERR_NOT_IMPLEMENTED -> #{const CCI_ERR_NOT_IMPLEMENTED}
+     ERR_NOT_FOUND       -> #{const CCI_ERR_NOT_FOUND}
+     EINVAL              -> #{const CCI_EINVAL}
+     ETIMEDOUT           -> #{const CCI_ETIMEDOUT}
+     ENOMEM              -> #{const CCI_ENOMEM}
+     ENODEV              -> #{const CCI_ENODEV}
+     EBUSY               -> #{const CCI_EBUSY}
+     ERANGE              -> #{const CCI_ERANGE}
+     EAGAIN              -> #{const CCI_EAGAIN}
+     ENOBUFS             -> #{const CCI_ENOBUFS}
+     EMSGSIZE            -> #{const CCI_EMSGSIZE}
+     ENOMSG              -> #{const CCI_ENOMSG}
+     EADDRNOTAVAIL       -> #{const CCI_EADDRNOTAVAIL}
      OTHER co            -> co
  
  toEnum c = 
    case c of
-     (#const CCI_SUCCESS)             -> SUCCESS
-     (#const CCI_ERROR)               -> ERROR
-     (#const CCI_ERR_DISCONNECTED)    -> ERR_DISCONNECTED
-     (#const CCI_ERR_RNR)             -> ERR_RNR
-     (#const CCI_ERR_DEVICE_DEAD)     -> ERR_DEVICE_DEAD
-     (#const CCI_ERR_RMA_HANDLE)      -> ERR_RMA_HANDLE
-     (#const CCI_ERR_RMA_OP)          -> ERR_RMA_OP
-     (#const CCI_ERR_NOT_IMPLEMENTED) -> ERR_NOT_IMPLEMENTED
-     (#const CCI_ERR_NOT_FOUND)       -> ERR_NOT_FOUND
-     (#const CCI_EINVAL)              -> EINVAL
-     (#const CCI_ETIMEDOUT)           -> ETIMEDOUT
-     (#const CCI_ENOMEM)              -> ENOMEM
-     (#const CCI_ENODEV)              -> ENODEV
-     (#const CCI_EBUSY)               -> EBUSY
-     (#const CCI_ERANGE)              -> ERANGE
-     (#const CCI_EAGAIN)              -> EAGAIN
-     (#const CCI_ENOBUFS)             -> ENOBUFS
-     (#const CCI_EMSGSIZE)            -> EMSGSIZE
-     (#const CCI_ENOMSG)              -> ENOMSG
-     (#const CCI_EADDRNOTAVAIL)       -> EADDRNOTAVAIL
+     #{const CCI_SUCCESS}             -> SUCCESS
+     #{const CCI_ERROR}               -> ERROR
+     #{const CCI_ERR_DISCONNECTED}    -> ERR_DISCONNECTED
+     #{const CCI_ERR_RNR}             -> ERR_RNR
+     #{const CCI_ERR_DEVICE_DEAD}     -> ERR_DEVICE_DEAD
+     #{const CCI_ERR_RMA_HANDLE}      -> ERR_RMA_HANDLE
+     #{const CCI_ERR_RMA_OP}          -> ERR_RMA_OP
+     #{const CCI_ERR_NOT_IMPLEMENTED} -> ERR_NOT_IMPLEMENTED
+     #{const CCI_ERR_NOT_FOUND}       -> ERR_NOT_FOUND
+     #{const CCI_EINVAL}              -> EINVAL
+     #{const CCI_ETIMEDOUT}           -> ETIMEDOUT
+     #{const CCI_ENOMEM}              -> ENOMEM
+     #{const CCI_ENODEV}              -> ENODEV
+     #{const CCI_EBUSY}               -> EBUSY
+     #{const CCI_ERANGE}              -> ERANGE
+     #{const CCI_EAGAIN}              -> EAGAIN
+     #{const CCI_ENOBUFS}             -> ENOBUFS
+     #{const CCI_EMSGSIZE}            -> EMSGSIZE
+     #{const CCI_ENOMSG}              -> ENOMSG
+     #{const CCI_EADDRNOTAVAIL}       -> EADDRNOTAVAIL
      _ -> OTHER c
     
 

@@ -45,4 +45,10 @@ Test-Suite test-cci
   build-depends:  base, bytestring, cci
   ghc-options:    -O -Wall -idist/build
 
+Test-Suite test-cci2
+  type:           exitcode-stdio-1.0
+  main-is:        examples/Server.hs
+  build-depends:  base, bytestring, cci
+  ghc-options:    -O -Wall -idist/build
+
 

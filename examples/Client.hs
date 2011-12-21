@@ -1,29 +1,34 @@
 
 import Control.Concurrent    ( threadWaitRead )
 import Control.Exception     ( finally )
-import Data.ByteString as B  ( ByteString, putStrLn, empty )
+import Data.ByteString as B  ( putStrLn, empty )
 import Data.ByteString.Char8 ( pack )
-import Network.CCI           ( initCCI, withEndpoint, getEvent, connect, ConnectionAttributes(..)
+import System.Environment    ( getArgs )
+
+import Network.CCI           ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
                              , withEventData, EventData(..), disconnect, send
                              )
 
 
+main :: IO ()
 main = do
+    [uri] <- getArgs
     initCCI
     withEndpoint Nothing$ \(ep,fd) -> do
-      connect ep "localhost" empty CONN_ATTR_UU "conn. req. ctx" Nothing
-      loopWhileM id$ withEventData ep$ \restore -> maybe (threadWaitRead fd >> return False)$ \ev -> 
+      connect ep uri empty CONN_ATTR_UU 0 Nothing
+      _ <- loopWhileM id$ withEventData ep$ maybe ({- threadWaitRead fd >>-} return True)$ \ev -> 
          case ev of
 
-           EvConnectAccepted "conn. req. cxt" conn ->
-             do send conn (pack "ping!") "send client ctx." []
+           EvConnectAccepted ctx conn ->
+             do print ctx
+                send conn (pack "ping!") 1 []
                 return True
 
            EvRecv bs conn -> flip finally (disconnect conn)$
              do B.putStrLn bs
-                return True
+                return False
 
-           _ -> print ev >> return False
+           _ -> print ev >> return True
       
       return ()
 

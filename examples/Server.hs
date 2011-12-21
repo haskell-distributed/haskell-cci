@@ -2,28 +2,28 @@
 import Control.Concurrent    ( threadWaitRead )
 import Control.Exception     ( finally )
 import Control.Monad         ( forever, void )
-import Data.ByteString as B  ( ByteString, putStrLn )
+import qualified Data.ByteString as B  ( putStrLn )
 import Data.ByteString.Char8 ( pack )
-import Network.CCI           ( initCCI, withEndpoint, accept, ConnectionAttributes(..)
+import Network.CCI           ( initCCI, withEndpoint, endpointURI, accept
                              , withEventData, EventData(..), disconnect, send
                              )
 
 
+main :: IO ()
 main = do
     initCCI
     withEndpoint Nothing$ \(ep,fd) -> do
-      forever$ withEventData ep$ \restore -> maybe (threadWaitRead fd)$ \ev ->
-         case ev of
+      endpointURI ep >>= putStrLn
+      _ <- forever$ withEventData ep$ maybe ({- threadWaitRead fd -} return ())$ \evd ->
+         case evd of
 
-           EvConnectRequest ev bs cattr -> void$ accept ev
+           EvConnectRequest ev _bs _cattr -> void$ accept ev
 
            EvRecv bs conn -> flip finally (disconnect conn)$
              do B.putStrLn bs
-                send conn (pack "pong!") "send server ctx." []
+                send conn (pack "pong!") 1 []
 
-           EvSend ctx status conn -> print ev
-
-           _ -> print ev
+           _ -> print evd
       
       return ()
 
