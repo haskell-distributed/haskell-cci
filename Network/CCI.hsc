@@ -32,6 +32,7 @@ module Network.CCI
   , connect
   , disconnect
   , ConnectionAttributes(..)
+  , WordPtr
   -- * Data transfers
   -- $dt
 
@@ -152,13 +153,13 @@ import System.Posix.Types     ( Fd )
 -- > device = ipath1
 -- > sl = 3 # IB service level (if applicable)
 -- > 
--- > # storage is a device that uses the UDP driver. Note that this driver
--- > # allows specifying which device to use by specifying its IP address
--- > # and MAC address -- assumedly it's an error if there is no single
--- > # device that matches both the specified IP address and MAC
+-- > # storage is a device that uses the sock driver (udp sockets). Note
+-- > # that this driver allows specifying which device to use by specifying 
+-- > # its IP address and MAC address -- assumedly it's an error if there is
+-- > # no single device that matches both the specified IP address and MAC
 -- > # (vs. specifying a specific device name).
 -- > [storage]
--- > driver = udp
+-- > driver = sock
 -- > priority = 5
 -- > ip = 172.31.194.1
 -- > mac = 01:12:23:34:45
@@ -580,7 +581,7 @@ instance Enum ConnectionAttributes where
 --
 -- Flags:
 --
---  * If the 'FLAG_BLOCKING' flag is specified, 'send' will also
+--  * If the 'SEND_BLOCKING' flag is specified, 'send' will also
 --    block until the send completion has occurred. In this case, there
 --    is no event returned for this send via 'getEvent', the send
 --    completion status is returned via 'send'. A safe foreign call
@@ -588,7 +589,7 @@ instance Enum ConnectionAttributes where
 --    as blocking a lot, perhaps you should consider implementing the blocking 
 --    behavior on the Haskell side.
 --
---  * If the 'FLAG_NO_COPY' is specified, the application is
+--  * If the 'SEND_NO_COPY' is specified, the application is
 --    indicating that it does not need the buffer back until the send
 --    completion occurs (which is most useful when FLAG_BLOCKING is
 --    not specified). The CCI implementation is therefore free to use
@@ -596,7 +597,7 @@ instance Enum ConnectionAttributes where
 --    Make sure to keep alive the memory of the ByteString message 
 --    or it could be garbage collected before the send completes.
 --
---  * 'FLAG_SILENT' means that no completion will be generated for
+--  * 'SEND_SILENT' means that no completion will be generated for
 --    non-FLAG_BLOCKING sends. For reliable ordered connections,
 --    since completions are issued in order, the completion of any
 --    non-SILENT send directly implies the completion of any previous
@@ -778,13 +779,13 @@ withConnectionRMALocalHandle c cs = bracket (rmaConnectionRegister c cs) rmaDere
 --
 -- The following flags might be specified:
 --
---  * RMA_BLOCKING: Blocking call (see 'send' for details).
+--  * 'RMA_BLOCKING': Blocking call (see 'send' for details).
 --
---  * RMA_FENCE: All previous operations are guaranteed to
+--  * 'RMA_FENCE': All previous operations are guaranteed to
 --    complete remotely prior to this operation
 --    and all subsequent operations.
 --
---  * CCI_FLAG_SILENT: Generates no local completion event (see 'send'
+--  * 'RMA_SILENT': Generates no local completion event (see 'send'
 --    for details).
 -- 
 -- May throw:
