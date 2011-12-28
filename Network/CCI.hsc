@@ -90,7 +90,7 @@ import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, pt
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
 import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff, sizeOf) )
 
-import System.Posix.Types     ( Fd )
+import System.Posix.Types     ( Fd(Fd) )
 
 
 #include <cci.h>
@@ -322,9 +322,9 @@ createEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the syst
 createEndpoint mdev = alloca$ \ppend ->
     alloca$ \pfd -> do
       cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend pfd >>= cci_check_exception
-      liftM2 ((,)) (peek ppend) (peek pfd)
+      liftM2 ((,)) (peek ppend) (fmap Fd$ peek pfd)
 
-foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr Endpoint -> Ptr Fd -> IO CInt
+foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr Endpoint -> Ptr CInt -> IO CInt
 
 
 -- | Frees resources associated with the endpoint. All open connections 
