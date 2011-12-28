@@ -381,7 +381,7 @@ endpointURI (Endpoint pend) = #{peek cci_endpoint_t, name} pend >>= peekCString
 -- of type @ctx@.
 --
 newtype Connection = Connection (Ptr ConnectionV)
-  deriving (Storable, Show)
+  deriving (Storable, Show, Ord, Eq)
 
 data ConnectionV
 
@@ -1359,7 +1359,7 @@ data Status =
   | ENOMSG    -- ^ No message of desired type
   | EADDRNOTAVAIL -- ^ Address not available
   | OTHER Int
- deriving (Show,Typeable)
+ deriving (Show,Read)
 
 
 cci_check_exception :: CInt -> IO ()

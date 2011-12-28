@@ -39,16 +39,23 @@ Library
   extra-libraries:  cci
 
 
-Test-Suite test-cci
+Test-Suite test-client
   type:           exitcode-stdio-1.0
   main-is:        examples/Client.hs
   build-depends:  base, bytestring, cci
   ghc-options:    -O -Wall -idist/build
 
-Test-Suite test-cci2
+Test-Suite test-server
   type:           exitcode-stdio-1.0
   main-is:        examples/Server.hs
   build-depends:  base, bytestring, cci
+  ghc-options:    -O -Wall -idist/build
+
+Test-Suite test-worker
+  type:           exitcode-stdio-1.0
+  main-is:        Worker.hs
+  hs-source-dirs: test
+  build-depends:  base, bytestring, cci, containers, binary
   ghc-options:    -O -Wall -idist/build
 
 
