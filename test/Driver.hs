@@ -93,9 +93,11 @@ mergeI' i0 l0 i1 l1 = do
     let (i:is) = sort iss
     return$ insertI 0 i is i0 i1
   where
+    -- | Given indexes (i:is) in [0..l0+l1-1] inserts elements of i0 among elements of i1
+	-- so the positions of the i0 elements in the result match those of the indexes (i:is)
     insertI p i is i0 i1 
         | p<i, (ir1:irs1) <- i1            = ir1 : insertI (p+1) i is i0 irs1
-        | (i':is') <- is, (ir0:irs0) <- i0 = ir0 : insertI p i' is' irs0 i1
+        | (i':is') <- is, (ir0:irs0) <- i0 = ir0 : insertI (p+1) i' is' irs0 i1
         | otherwise                        = i0 ++ i1
 
 {-
