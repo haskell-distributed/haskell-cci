@@ -16,6 +16,7 @@ main = do
     initCCI
     withEndpoint Nothing$ \(ep,fd) -> do
       connect ep uri empty CONN_ATTR_UU 0 Nothing
+      print fd
       _ <- loopWhileM id$ withEventData ep$ maybe ({- threadWaitRead fd >>-} return True)$ \ev -> 
          case ev of
 

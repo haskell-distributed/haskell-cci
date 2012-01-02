@@ -38,22 +38,23 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
 
            ConnectTo uri i mt ->
                connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_UU i mt
-                   >> events rcm rcrs ep
 
-           Accept i -> markAccept i rcrs >> events rcm rcrs ep
+           Accept i -> markAccept i rcrs
 
-           Reject i -> markReject i rcrs >> events rcm rcrs ep
+           Reject i -> markReject i rcrs
 
-           Disconnect i -> getConn i rcm >>= disconnect >> events rcm rcrs ep
+           Disconnect i -> getConn i rcm >>= disconnect
 
            Send i ctx bs -> 
-               getConn i rcm >>= \c -> send c bs ctx [] >> events rcm rcrs ep
+               getConn i rcm >>= \c -> send c bs ctx []
+
+           WaitEvent -> events rcm rcrs ep >> return True
 
            Quit -> return False
 
   where
     events rcm rcrs ep = do
-        _ <- loopWhileM id$ withEventData ep$ maybe (return False)$ \ev -> do
+        void$ loopWhileM id$ withEventData ep$ maybe (return True)$ \ev -> do
             case ev of
               EvConnectAccepted ctx conn -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
                
@@ -71,8 +72,7 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
 
               EvEndpointDeviceFailed _ -> sendResponse EndpointDeviceFailed
 
-            return True
-        return True
+            return False
 
 
 -- | @loopWhileM p io@ performs @io@ repeteadly while its result satisfies @p@.

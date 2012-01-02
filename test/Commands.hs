@@ -14,11 +14,13 @@ data Command =
     | Accept WordPtr
     | Reject WordPtr
     | Disconnect WordPtr
+	| WaitEvent
     | Quit
-  deriving (Show, Read)
+  deriving (Show, Read, Eq)
 
 data Response =
-      ConnectAccepted WordPtr
+      EndpointCreated String
+    | ConnectAccepted WordPtr
     | Recv WordPtr ByteString
     | SendCompletion WordPtr WordPtr Status 
     | Error String
@@ -29,8 +31,9 @@ data Response =
     | TimedOut WordPtr
     | KeepAliveTimedOut WordPtr
     | EndpointDeviceFailed
+    | Idle
     | Bye
-  deriving (Show, Read)
+  deriving (Show, Read, Eq)
 
 
 -- | Initializes communication with the driver process.

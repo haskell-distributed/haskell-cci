@@ -1359,7 +1359,7 @@ data Status =
   | ENOMSG    -- ^ No message of desired type
   | EADDRNOTAVAIL -- ^ Address not available
   | OTHER Int
- deriving (Show,Read)
+ deriving (Show,Read,Eq)
 
 
 cci_check_exception :: CInt -> IO ()

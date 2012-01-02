@@ -38,24 +38,31 @@ Library
   ghc-options:      -O -Wall
   extra-libraries:  cci
 
+Flag examples
+  Description: Build examples
+  Default: False
 
-Test-Suite test-client
-  type:           exitcode-stdio-1.0
+Executable ex-client
   main-is:        examples/Client.hs
-  build-depends:  base, bytestring, cci
   ghc-options:    -O -Wall -idist/build
+  if !flag(examples)
+    buildable: False
+  else
+    build-depends:  base, bytestring, cci
 
-Test-Suite test-server
-  type:           exitcode-stdio-1.0
+Executable ex-server
   main-is:        examples/Server.hs
-  build-depends:  base, bytestring, cci
   ghc-options:    -O -Wall -idist/build
+  if !flag(examples)
+    buildable: False
+  else
+    build-depends:  base, bytestring, cci
 
-Test-Suite test-worker
+Test-Suite test-cci
   type:           exitcode-stdio-1.0
-  main-is:        Worker.hs
+  main-is:        Driver.hs
   hs-source-dirs: test
-  build-depends:  base, bytestring, cci, containers, binary
-  ghc-options:    -O -Wall -idist/build
+  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0
+  ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
 
 
