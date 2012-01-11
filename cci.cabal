@@ -86,6 +86,14 @@ Executable ex-client
   else
     build-depends:  base, bytestring, cci
 
+Executable ex-pingpong
+  main-is:        examples/pingpong.hs
+  ghc-options:    -O -Wall -idist/build
+  if !flag(examples)
+    buildable: False
+  else
+    build-depends:  base, bytestring, cci, time
+
 Executable ex-server
   main-is:        examples/Server.hs
   ghc-options:    -O -Wall -idist/build
