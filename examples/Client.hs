@@ -1,12 +1,11 @@
 
-import Control.Concurrent    ( threadWaitRead )
 import Control.Exception     ( finally )
 import Data.ByteString as B  ( putStrLn, empty )
 import Data.ByteString.Char8 ( pack )
 import System.Environment    ( getArgs )
 
 import Network.CCI           ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
-                             , withEventData, EventData(..), disconnect, send
+                             , pollWithEventData, EventData(..), disconnect, send
                              )
 
 
@@ -17,7 +16,7 @@ main = do
     withEndpoint Nothing$ \(ep,fd) -> do
       connect ep uri empty CONN_ATTR_UU 0 Nothing
       print fd
-      _ <- loopWhileM id$ withEventData ep$ maybe ({- threadWaitRead fd >>-} return True)$ \ev -> 
+      _ <- loopWhileM id$ pollWithEventData ep$ \ev -> 
          case ev of
 
            EvConnectAccepted ctx conn ->
