@@ -58,6 +58,8 @@ module Network.CCI
   -- * Event handling
   , getEvent
   , returnEvent
+  , tryWithEventData
+  , pollWithEventData
   , withEventData
   , Event
   , getEventData
@@ -77,6 +79,7 @@ module Network.CCI
   , Status(..)
   ) where
 
+import Control.Concurrent     ( threadWaitRead )
 import Control.Exception      ( Exception, throwIO, bracket, onException, mask_ )
 import Control.Monad          ( liftM2, liftM3, join )
 import Data.Bits              ( (.|.), shiftR, shiftL, (.&.) )
@@ -958,19 +961,40 @@ foreign import ccall unsafe cci_return_event :: Ptr EventV -> IO CInt
 -- If this does not fit your needs consider using one of 'Control.Exception.bracket' or
 -- 'Control.Exception.mask' in combination with 'getEvent'.
 --
-withEventData :: BufferHandler buffer => 
+tryWithEventData :: BufferHandler buffer => 
    Endpoint   -- ^ Endpoint on which to listen for events.
-   -> (Maybe (EventData buffer) -> IO a) 
-   -> IO a  -- ^ Yields the callback result.
-withEventData endp f = mask_$ do
+   -> IO a    -- ^ Action to perform in case no event is available.
+   -> (EventData buffer -> IO a) -- ^ Callback for the case when an event is available.
+   -> IO a  -- ^ Yields the callback or the no-event action result.
+tryWithEventData endp noEvent f = mask_$ do
     mev <- getEvent endp 
     case mev of
-      Nothing -> f Nothing
+      Nothing -> noEvent
       Just ev -> do
           evd <- getEventData ev
-          r <- f (Just evd) `onException` returnEvent ev
+          r <- f evd `onException` returnEvent ev
           returnEvent ev
           return r
+
+-- | Like 'tryWithEventData' but blocks if no events are available.
+withEventData :: BufferHandler buffer => 
+   Endpoint   -- ^ Endpoint on which to listen for events.
+   -> Fd      -- ^ OS handle to block onto.
+   -> (EventData buffer -> IO a) 
+   -> IO a  -- ^ Yields the callback result.
+withEventData endp fd f = go
+  where
+    go = tryWithEventData endp (threadWaitRead fd >> go) f
+
+
+-- | Like 'tryWithEventData' but loops polling until events are available.
+pollWithEventData :: BufferHandler buffer => 
+   Endpoint   -- ^ Endpoint on which to listen for events.
+   -> (EventData buffer -> IO a) 
+   -> IO a  -- ^ Yields the callback result.
+pollWithEventData endp f = go
+  where
+    go = tryWithEventData endp go f
 
 
 -- | Event representation
