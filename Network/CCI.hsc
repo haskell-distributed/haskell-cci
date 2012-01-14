@@ -64,7 +64,7 @@ module Network.CCI
   , Event
   , getEventData
   , BufferHandler(..)
-  , VolatilByteString(..)
+  , VolatileByteString(..)
   , EventData(..)
   -- * Setting options
   , setConnectionOpt
@@ -711,11 +711,7 @@ instance Enum SEND_FLAG where
 --
 -- It is allowable to have overlapping registerations.
 --
--- May throw:
---
---  * 'EINVAL' if the connection is unreliable or the register buffer has length 0.
---
---  * driver-specific errors.
+-- May throw driver-specific errors.
 --
 rmaEndpointRegister :: Endpoint -> CStringLen -> IO RMALocalHandle
 rmaEndpointRegister (Endpoint pend) (cbuf,clen) = alloca$ \p ->
@@ -727,9 +723,17 @@ foreign import ccall unsafe cci_rma_register :: Ptr EndpointV -> Ptr ConnectionV
 
 
 -- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
+--
+-- May throw:
+--
+--  * 'EINVAL' if the connection is unreliable or the register buffer has length 0.
+--
+--  * driver-specific errors.
+--
 rmaConnectionRegister :: Connection -> CStringLen -> IO RMALocalHandle
-rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p ->
-    cci_rma_register nullPtr pconn cbuf (fromIntegral clen) p
+rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p -> do
+    pep <- #{peek cci_connection_t, endpoint} pconn
+    cci_rma_register pep pconn cbuf (fromIntegral clen) p
       >>= cci_check_exception >> peek p
 
 
@@ -1058,14 +1062,15 @@ instance BufferHandler ByteString where
 -- underlying buffer is not freed.
 --
 -- The underlying buffer is not managed by the garbage collector.
-newtype VolatilByteString = VolatilB ByteString
+newtype VolatileByteString = VolatileB ByteString
+  deriving Show
 
 -- | Creates a ByteString which points to the provided data.
 --
 -- The ByteString is usable as long as the buffer containing the
 -- provided data is valid.
-instance BufferHandler VolatilByteString where
-  mkBuffer = fmap VolatilB . unsafePackCStringLen
+instance BufferHandler VolatileByteString where
+  mkBuffer = fmap VolatileB . unsafePackCStringLen
 
 -- | Passes the buffer containing the provided data unmodified.
 instance BufferHandler CStringLen where
