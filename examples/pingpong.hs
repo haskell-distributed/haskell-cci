@@ -112,17 +112,21 @@ goClient ep o = do
     goClient' conn sbuf mrmahs = do
       putStrLn "Bytes\t\tLatency (one-way)\tThroughput"
       let app = if isNothing mrmahs then (0:) else id
-      forM_ (takeWhile (<=B.length sbuf)$ app$ iterate (*2) 1)$ \current_size -> do
+          bszs = takeWhile (<=B.length sbuf)$ app$ iterate (*2) 1
+          its = replicate (length$ takeWhile (<1024*(64::Int)) bszs) 0 ++ [0::Int ..]
+      forM_ (zip bszs its)$ \(current_size,i) -> do
 
-        replicateM_ (oWarmup o)$ testRoundTrip conn sbuf mrmahs current_size
+        let warmup = max 2$ oWarmup o `div` 2^i
+        let iters = max 16$ oIters o `div` 2^i
+
+        replicateM_ warmup$ testRoundTrip conn sbuf mrmahs current_size
 
         start <- getCurrentTime
-        replicateM_ (oIters o)$ testRoundTrip conn sbuf mrmahs current_size
+        replicateM_ iters$ testRoundTrip conn sbuf mrmahs current_size
         end <- getCurrentTime
 
-        let lat = toRational (diffUTCTime end start) * 1000000 / toRational (oIters o) 
+        let lat = toRational (diffUTCTime end start) * 1000000 / toRational iters
                     / if isNothing mrmahs then 2 else 1
-        -- let lat = toRational (diffUTCTime end start) * 1000000 / 2 / toRational (oIters o)
             bw = fromIntegral current_size / lat;
         printf "%8d\t%8.2f us\t\t%8.2f MB/s\n" current_size (fromRat lat :: Double) (fromRat bw :: Double)
 
