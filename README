@@ -1,8 +1,36 @@
 This repository contains Haskell bindings for the CCI library.
 
-Currently, only the API skeleton is written:
+The verbs branch contains the latest API updates, and the cabal file builds cci
+statically.
 
-  https://github.com/parsci/cci-haskell/blob/master/Network/CCI.hs
+CCI API:
+  https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs/Network/CCI.hsc
 
-Come back soon!
+
+== Building ==
+
+git clone --branch topic/verbs git@git.assembla.com:cci-ornl.git cci
+
+cabal configure -f examples
+
+cabal build
+
+
+== Running pingpong ==
+
+# Create config file
+cat > cci.ini
+[Infiniband]
+driver=verbs
+mss=1024
+hca_id = mlx4_0
+
+# Start the server
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
+
+# Start the client using rma transfers upto 4 MB.
+CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
+
+# Start the client using active messages
+CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
 
