@@ -1,8 +1,8 @@
 This repository contains Haskell bindings for the CCI library.
 
-Currently, only the API skeleton is written:
+Please see the verbs branch. That's where all the action happens now.
 
-  https://github.com/parsci/cci-haskell/blob/master/Network/CCI.hs
+    https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs
 
 Come back soon!
 
