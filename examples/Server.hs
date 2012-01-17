@@ -5,6 +5,7 @@ import qualified Data.ByteString as B  ( putStrLn )
 import Data.ByteString.Char8 ( pack )
 import Network.CCI           ( initCCI, withEndpoint, endpointURI, accept
                              , pollWithEventData, EventData(..), disconnect, send
+							 , unsafePackEventBytes
                              )
 
 
@@ -18,8 +19,8 @@ main = do
 
            EvConnectRequest ev _bs _cattr -> void$ accept ev
 
-           EvRecv bs conn -> flip finally (disconnect conn)$
-             do B.putStrLn bs
+           EvRecv ebs conn -> flip finally (disconnect conn)$
+             do unsafePackEventBytes ebs >>= B.putStrLn
                 send conn (pack "pong!") 1 []
 
            _ -> print evd

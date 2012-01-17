@@ -63,8 +63,9 @@ module Network.CCI
   , withEventData
   , Event
   , getEventData
-  , BufferHandler(..)
-  , VolatileByteString(..)
+  , EventBytes
+  , packEventBytes
+  , unsafePackEventBytes
   , EventData(..)
   -- * Setting options
   , setConnectionOpt
@@ -403,7 +404,7 @@ connectionMaxSendSize (Connection pconn) = #{peek cci_connection_t, max_send_siz
 --
 --  * driver-specific errors
 --
-accept :: Event  -- ^ A connection request event previously returned by 'getEvent'
+accept :: Event s  -- ^ A connection request event previously returned by 'getEvent'
        -> IO Connection
 accept (Event penv) = alloca$ \ppconn ->
     cci_accept penv ppconn >>= cci_check_exception >> peek ppconn
@@ -420,7 +421,7 @@ foreign import ccall unsafe cci_accept :: Ptr EventV -> Ptr Connection -> IO CIn
 --
 --  * driver-specific errors
 --
-reject :: Event -> IO ()
+reject :: Event s -> IO ()
 reject (Event penv) = cci_reject penv >>= cci_check_exception
 
 foreign import ccall unsafe cci_reject :: Ptr EventV -> IO CInt
@@ -925,7 +926,7 @@ createRMARemoteHandle b = case B.length b of
 -- The garbage collector will call 'returnEvent' if there are no
 -- references to the returned event and memory is claimed.
 --
-getEvent :: Endpoint -> IO (Maybe Event)
+getEvent :: Endpoint -> IO (Maybe (Event s))
 getEvent (Endpoint pend) = alloca$ \pev -> do
     st <- cci_get_event pend pev
     case st of
@@ -933,7 +934,7 @@ getEvent (Endpoint pend) = alloca$ \pev -> do
       _ -> cci_check_exception st >> fmap Just (peek pev)
 
 
-foreign import ccall unsafe cci_get_event :: Ptr EndpointV -> Ptr Event -> IO CInt
+foreign import ccall unsafe cci_get_event :: Ptr EndpointV -> Ptr (Event s) -> IO CInt
 
 
 -- | This function gives back to the CCI implementation the 
@@ -949,7 +950,7 @@ foreign import ccall unsafe cci_get_event :: Ptr EndpointV -> Ptr Event -> IO CI
 --
 -- May throw driver-specific errors.
 --
-returnEvent :: Event -> IO ()
+returnEvent :: Event s -> IO ()
 returnEvent (Event pev) = cci_return_event pev >>= cci_check_exception
 
 foreign import ccall unsafe cci_return_event :: Ptr EventV -> IO CInt
@@ -965,10 +966,10 @@ foreign import ccall unsafe cci_return_event :: Ptr EventV -> IO CInt
 -- If this does not fit your needs consider using one of 'Control.Exception.bracket' or
 -- 'Control.Exception.mask' in combination with 'getEvent'.
 --
-tryWithEventData :: BufferHandler buffer => 
+tryWithEventData ::
    Endpoint   -- ^ Endpoint on which to listen for events.
    -> IO a    -- ^ Action to perform in case no event is available.
-   -> (EventData buffer -> IO a) -- ^ Callback for the case when an event is available.
+   -> (forall s. EventData s -> IO a) -- ^ Callback for the case when an event is available.
    -> IO a  -- ^ Yields the callback or the no-event action result.
 tryWithEventData endp noEvent f = mask_$ do
     mev <- getEvent endp 
@@ -981,10 +982,10 @@ tryWithEventData endp noEvent f = mask_$ do
           return r
 
 -- | Like 'tryWithEventData' but blocks if no events are available.
-withEventData :: BufferHandler buffer => 
+withEventData :: 
    Endpoint   -- ^ Endpoint on which to listen for events.
    -> Fd      -- ^ OS handle to block onto.
-   -> (EventData buffer -> IO a) 
+   -> (forall s. EventData s -> IO a) 
    -> IO a  -- ^ Yields the callback result.
 withEventData endp fd f = go
   where
@@ -992,24 +993,29 @@ withEventData endp fd f = go
 
 
 -- | Like 'tryWithEventData' but loops polling until events are available.
-pollWithEventData :: BufferHandler buffer => 
+pollWithEventData :: 
    Endpoint   -- ^ Endpoint on which to listen for events.
-   -> (EventData buffer -> IO a) 
+   -> (forall s. EventData s -> IO a) 
    -> IO a  -- ^ Yields the callback result.
 pollWithEventData endp f = go
   where
     go = tryWithEventData endp go f
 
 
--- | Event representation
-newtype Event = Event (Ptr EventV)
+-- | Event representation.
+--
+-- The purpose of the @s@ parameter is to prevent the Event
+-- from escaping the 'withEventData'-like functions.
+-- Though it could still be done by launching threads from them or using unsafe calls.
+--
+newtype Event s = Event (Ptr EventV)
   deriving (Storable, Show)
 
 data EventV
 
 
 -- | Retrieves the public data contained in an event.
-getEventData :: BufferHandler buffer => Event -> IO (EventData buffer)
+getEventData :: Event s -> IO (EventData s)
 getEventData ev@(Event pev) = do
     st <- #{peek cci_event_t, type} pev
     case st::CInt of
@@ -1018,7 +1024,7 @@ getEventData ev@(Event pev) = do
                         (fmap ctoEnum$  #{peek cci_event_send_t, status} pev)
                         (#{peek cci_event_send_t, connection} pev)
       #{const CCI_EVENT_RECV} -> 
-          liftM2 EvRecv (join$ liftM2 cmkBuffer
+          liftM2 EvRecv (join$ liftM2 mkEventBytes
                                       (#{peek cci_event_recv_t, ptr} pev) 
                                       (#{peek cci_event_recv_t, len} pev))
                         (#{peek cci_event_recv_t, connection} pev)
@@ -1030,7 +1036,7 @@ getEventData ev@(Event pev) = do
       #{const CCI_EVENT_CONNECT_REJECTED} -> 
           fmap EvConnectRejected (#{peek cci_event_connect_rejected_t, context} pev) 
       #{const CCI_EVENT_CONNECT_REQUEST} -> 
-          liftM2 (EvConnectRequest ev) (join$ liftM2 cmkBuffer
+          liftM2 (EvConnectRequest ev) (join$ liftM2 mkEventBytes
                                               (#{peek cci_event_connect_request_t, data_ptr} pev) 
                                               (#{peek cci_event_connect_request_t, data_len} pev))
                                        (fmap ctoEnum$ #{peek cci_event_connect_request_t, attribute} pev)
@@ -1041,44 +1047,39 @@ getEventData ev@(Event pev) = do
           
       _ -> error$ "getEventData: unexpected event type: "++show st
   where
-    cmkBuffer p len = mkBuffer (p,fromIntegral (len::CInt))
+    mkEventBytes p len = return$ EventBytes (p,fromIntegral (len::CInt))
     ctoEnum :: Enum a => CInt -> a
     ctoEnum = toEnum . fromIntegral
 
 
--- | Determines how a buffer is to be treated.
+-- | Bytes owned by an 'Event'. They will be released when the event is returned.
 --
--- Instances of this class can copy the data into a Haskell value
--- or they can keep a reference to the data without copying it.
-class BufferHandler buffer where
-  -- | Creates a buffer from a 'CStringLen'
-  mkBuffer :: CStringLen -> IO buffer
-
--- | Copies provided data into a ByteString.
-instance BufferHandler ByteString where
-  mkBuffer = packCStringLen
-
--- | A ByteString which is valid as long as the
--- underlying buffer is not freed.
+-- The purpose of the @s@ parameter is to prevent the EventBytes
+-- from escaping the 'withEventData'-like functions.
+-- Though it could still be done by launching threads from it or using unsafe calls.
 --
--- The underlying buffer is not managed by the garbage collector.
-newtype VolatileByteString = VolatileB ByteString
+newtype EventBytes s = EventBytes CStringLen
   deriving Show
 
--- | Creates a ByteString which points to the provided data.
---
--- The ByteString is usable as long as the buffer containing the
--- provided data is valid.
-instance BufferHandler VolatileByteString where
-  mkBuffer = fmap VolatileB . unsafePackCStringLen
 
--- | Passes the buffer containing the provided data unmodified.
-instance BufferHandler CStringLen where
-  mkBuffer = return
+-- | Copies the event bytes into a ByteString.
+packEventBytes :: EventBytes s -> IO ByteString
+packEventBytes (EventBytes bs) = packCStringLen bs
+
+
+-- | Wraps the event bytes into a ByteString. The ByteString is valid for as long
+-- as the given event bytes are valid.
+unsafePackEventBytes :: EventBytes s -> IO ByteString
+unsafePackEventBytes (EventBytes bs) = unsafePackCStringLen bs
 
 
 -- | Representation of data contained in events.
-data EventData buffer =
+--
+-- The purpose of the @s@ parameter is to prevent the 'EventData' value
+-- from escaping the 'withEventData'-like functions.
+-- Though it could still be done by launching threads from it or using unsafe calls.
+--
+data EventData s =
 
     -- | A 'send' or 'rmaRead' has completed.
     --
@@ -1103,7 +1104,7 @@ data EventData buffer =
     -- Contains the transmitted data which is valid as long as the event
     -- is not returned ('returnEvent').
     -- 
-  | EvRecv buffer Connection
+  | EvRecv (EventBytes s) Connection
 
     -- | A new outgoing connection was successfully accepted at the
     -- peer; a connection is now available for data transfer.
@@ -1133,7 +1134,7 @@ data EventData buffer =
     -- connection attributes and a reference to the event
     -- for convenience to call 'accept' and 'reject'.
     --
-  | EvConnectRequest Event buffer ConnectionAttributes
+  | EvConnectRequest (Event s) (EventBytes s) ConnectionAttributes
 
     -- | The keepalive timeout has expired, i.e. no data from the
     -- peer has been received during that time period

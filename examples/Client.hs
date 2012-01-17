@@ -6,6 +6,7 @@ import System.Environment    ( getArgs )
 
 import Network.CCI           ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
                              , pollWithEventData, EventData(..), disconnect, send
+                             , unsafePackEventBytes
                              )
 
 
@@ -24,8 +25,8 @@ main = do
                 send conn (pack "ping!") 1 []
                 return True
 
-           EvRecv bs conn -> flip finally (disconnect conn)$
-             do B.putStrLn bs
+           EvRecv ebs conn -> flip finally (disconnect conn)$
+             do unsafePackEventBytes ebs >>= B.putStrLn
                 return False
 
            _ -> print ev >> return True

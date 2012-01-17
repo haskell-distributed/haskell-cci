@@ -1,7 +1,6 @@
 
 
 import Control.Monad         ( forever, void, forM_, replicateM_ )
-import Data.ByteString       ( ByteString )
 import qualified Data.ByteString as B  ( empty, take, length )
 import Data.ByteString.Char8 ( pack, unpack )
 import Data.ByteString.Unsafe ( unsafePackCStringLen )
@@ -14,7 +13,7 @@ import Network.CCI           ( initCCI, withEndpoint, endpointURI, accept, Endpo
                              , connect, ConnectionAttributes(..), connectionMaxSendSize
                              , createRMARemoteHandle, RMARemoteHandle, rmaWrite
                              , withConnectionRMALocalHandle, rmaHandle2ByteString
-                             , VolatileByteString(..)
+                             , unsafePackEventBytes, packEventBytes
                              )
 import Numeric               ( fromRat )
 import Text.Printf           ( printf )
@@ -68,13 +67,13 @@ main = do
 goServer :: Endpoint -> Options -> IO ()
 goServer ep _o = do
     pollWithEventData ep$ \evd ->
-        case evd :: EventData ByteString of
+        case evd of
           EvConnectRequest ev _bs _cattr  -> void$ accept ev
           _ -> print evd
 
     (conn,cs) <- pollWithEventData ep$ \evd ->
         case evd of
-          EvRecv bs conn -> return$ (,) conn$ read$ unpack bs
+          EvRecv ebs conn -> packEventBytes ebs >>= return . (,) conn . read . unpack
           _ -> print evd >> return undefined
     case cs of
       AM     -> connectionMaxSendSize conn >>= goServer'
@@ -88,8 +87,8 @@ goServer ep _o = do
       unsafePackCStringLen (cbuf,fromIntegral sz) >>= \sbuf ->
         forever$ pollWithEventData ep$ \evd ->
           case evd of
-            EvRecv (VolatileB bs) conn       -> send conn (B.take (B.length bs) sbuf) 0 []
-            EvSend _ _ _                    -> return ()
+            EvRecv ebs conn     -> unsafePackEventBytes ebs >>= \bs -> send conn (B.take (B.length bs) sbuf) 0 []
+            EvSend _ _ _        -> return ()
             _ -> print evd
       
 
@@ -97,7 +96,7 @@ goClient :: Endpoint -> Options -> IO ()
 goClient ep o = do
     connect ep (fromJust$ oServerURI o) B.empty CONN_ATTR_RO 0 Nothing
     conn <- pollWithEventData ep$ \evd ->
-        case evd :: EventData ByteString of
+        case evd of
           EvConnectAccepted _ctx conn -> return conn
           _                           -> print evd >> return undefined
     mrmah <- exchangeConnectionSpecs ep o conn
@@ -133,14 +132,14 @@ goClient ep o = do
     testRoundTrip conn _sbuf (Just (lh,rh)) msg_size = do
         rmaWrite conn Nothing rh 0 lh 0 (fromIntegral msg_size) 0 []
         void$ loopWhileM id$ pollWithEventData ep$ \evd ->
-          case evd :: EventData VolatileByteString of
+          case evd of
             EvSend _ _ _ -> return False
             _               -> print evd >> return True
     testRoundTrip conn sbuff Nothing msg_size = do
         send conn (B.take (fromIntegral msg_size) sbuff) 0 []
         void$ loopWhileM id$ pollWithEventData ep$ \evd ->
           case evd of
-            EvRecv bs _conn -> let _ = bs :: VolatileByteString in return False
+            EvRecv _ _conn -> return False
             EvSend _ _ _    -> return True
             _               -> print evd >> return True
 
@@ -151,7 +150,7 @@ exchangeConnectionSpecs ep o conn = do
     case cs of
       RMA _ -> loopWhileM isNothing$ pollWithEventData ep$ \evd ->
         case evd of
-            EvRecv bs _conn -> return$ createRMARemoteHandle bs
+            EvRecv ebs _conn -> packEventBytes ebs >>= return . createRMARemoteHandle
             EvSend _ _ _    -> return Nothing
             _               -> print evd >> return Nothing
       _ -> return Nothing
