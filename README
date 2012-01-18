@@ -1,7 +1,7 @@
 This repository contains Haskell bindings for the CCI library.
 
-The verbs branch contains the latest API updates, and the cabal file builds cci
-statically.
+In this branch the cabal file builds cci statically due to some issues we have
+when making ORNL CCI into a shared library.
 
 CCI API:
   https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs/Network/CCI.hsc
@@ -9,11 +9,24 @@ CCI API:
 
 == Building ==
 
+# Get ORNL CCI topic/verbs branch under the cci folder.
+# For parsci folks, this can be achieved by issuing:
 git clone --branch topic/verbs git@git.assembla.com:cci-ornl.git cci
+
+# For the rest of the world, you have to request a copy of the project tree:
+http://www.olcf.ornl.gov/center-projects/common-communication-interface/
+# ... and then apply a patch to it: 
+cd cci
+git am --signoff < ../0001-verbs-Sets-connection-field-of-receive-events-was-al.patch
+cd ..
 
 cabal configure -f examples
 
 cabal build
+
+# to build haddock documentation
+cabal install # Installing is necessary to prevent an error in next step.
+cabal haddock
 
 
 == Running pingpong ==
@@ -27,10 +40,12 @@ hca_id = mlx4_0
 
 # Start the server
 CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
+  Opened verbs://10.155.90.13:46188
+  ...
 
 # Start the client using rma transfers upto 4 MB.
-CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
 
 # Start the client using active messages
-CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
 
