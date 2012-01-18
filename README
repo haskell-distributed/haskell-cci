@@ -26,15 +26,7 @@ cabal haddock
 
 == Running pingpong ==
 
-# Create config file
-cat > cci.ini
-[Infiniband]
-driver=verbs
-mss=1024
-hca_id = mlx4_0
-
-
-# or for using UDP sockets:
+# Create a config file for using UDP sockets:
 cat > cci.ini
 [eth0]
 driver = sock
@@ -47,12 +39,12 @@ default = 1
 
 # Start the server
 CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
-  Opened verbs://10.155.90.13:46188
+  Opened ip://192.168.0.1:46188
   ...
 
 # Start the client using rma transfers upto 4 MB.
-CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
 
 # Start the client using active messages
-CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
 
