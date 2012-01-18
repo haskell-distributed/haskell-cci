@@ -1,8 +1,58 @@
 This repository contains Haskell bindings for the CCI library.
 
-Please see the verbs branch. That's where all the action happens now.
+See COPYING for license information.
+
+CCI API:
+  https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs/Network/CCI.hsc
+
+Please use the verbs branch if you want to test the bindings over InfiniBand.
 
     https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs
 
-Come back soon!
+The cabal file in the verbs branch builds ORNL CCI implementation statically.
+
+
+== Building ==
+
+cabal configure -f examples
+
+cabal build
+
+# to generate documentation
+cabal install # fixes error "cabal: Can't find deps for haddock" which would
+              # otherwise happen when running "cabal haddock".
+cabal haddock
+
+
+== Running pingpong ==
+
+# Create config file
+cat > cci.ini
+[Infiniband]
+driver=verbs
+mss=1024
+hca_id = mlx4_0
+
+
+# or for using UDP sockets:
+cat > cci.ini
+[eth0]
+driver = sock
+# replace with your device ip address
+ip = 192.168.0.1
+# replace with your device mac address
+mac = 00:e0:7d:ad:95:5e
+default = 1
+
+
+# Start the server
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
+  Opened verbs://10.155.90.13:46188
+  ...
+
+# Start the client using rma transfers upto 4 MB.
+CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
+
+# Start the client using active messages
+CCI_CONFIG=../cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
 
