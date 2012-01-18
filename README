@@ -14,6 +14,9 @@ The cabal file in the verbs branch builds ORNL CCI implementation statically.
 
 == Building ==
 
+# Install cci first. You'll have to request it at:
+http://www.olcf.ornl.gov/center-projects/common-communication-interface/
+
 cabal configure -f examples
 
 cabal build
