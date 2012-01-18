@@ -1,3 +1,21 @@
+--
+-- Copyright (C) 2012 Parallel Scientific 
+--
+-- This file is part of cci-haskell.
+--
+-- cci-haskell is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU General Public License Version 2 as 
+-- published by the Free Software Foundation.
+--
+-- cci-haskell is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU General Public License for more details.
+--
+-- You should have received a copy of the GNU General Public License
+-- along with cci-haskell.  If not, see <http://www.gnu.org/licenses/>.
+--
+
 {-# LANGUAGE DeriveDataTypeable         #-} 
 {-# LANGUAGE EmptyDataDecls             #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -6,6 +24,8 @@
 {-# LANGUAGE ForeignFunctionInterface   #-}
 
 -- | Haskell bindings for CCI. 
+--
+-- Copyright 2006 Parallel Scientific.
 --
 -- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> .
 -- Most of the comments in this module has been taken and reedited from there.
