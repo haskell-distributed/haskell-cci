@@ -1,3 +1,12 @@
+//
+// Copyright (C) 2012 Parallel Scientific. All rights reserved.
+//
+// See the accompanying COPYING file for license information.
+//
+
+// This file is used to compile CCI statically and the verbs
+// driver is always used.
+
 #include "cci.h"
 #include "plugins/base/public.h"
 #include "plugins/core/core.h"
