@@ -5,14 +5,14 @@ See COPYING for license information.
 CCI API:
   https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs/Network/CCI.hsc
 
-Please use the verbs branch if you want to test the bindings over InfiniBand.
 
-    https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs
+== Building haddock documentation == 
 
-The cabal file in the verbs branch builds ORNL CCI implementation statically.
+cabal configure # avoid using "-f examples" or cabal haddock will fail.
+cabal haddock
 
 
-== Building ==
+== Building cci for using the UDP sockets ==
 
 # Install cci first. You'll have to request it at:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
@@ -27,7 +27,7 @@ cabal install # fixes error "cabal: Can't find deps for haddock" which would
 cabal haddock
 
 
-== Running pingpong ==
+== Running pingpong using UDP sockets ==
 
 # Create a config file for using UDP sockets:
 cat > cci.ini
@@ -50,4 +50,49 @@ CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 
 
 # Start the client using active messages
 CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
+
+
+== Building cci for using the verbs driver ==
+
+This procedure builds cci statically due to some issues we have
+when making ORNL CCI into a shared library.
+
+# Get ORNL CCI topic/verbs branch under the cci folder.
+# For parsci folks, this can be achieved by issuing:
+git clone --branch topic/verbs git@git.assembla.com:cci-ornl.git cci
+
+# For the rest of the world, you probably have to request read access to the 
+# ORNL CCI repo:
+http://www.olcf.ornl.gov/center-projects/common-communication-interface/
+# get the topic/verbs branch
+git clone --branch topic/verbs git@github.com:CCI/cci.git cci
+# ... and then apply a patch to it: 
+cd cci
+git am --signoff < ../0001-verbs-Sets-connection-field-of-receive-events-was-al.patch
+cd ..
+
+cabal configure -f "examples static-verbs"
+
+cabal build
+
+
+== Running pingpong ==
+
+# Create a config file for using the verbs driver:
+cat > cci.ini
+[Infiniband]
+driver=verbs
+mss=1024
+hca_id = mlx4_0
+
+# Start the server
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
+  Opened verbs://10.155.90.13:46188
+  ...
+
+# Start the client using rma transfers upto 4 MB.
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
+
+# Start the client using active messages
+CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
 
