@@ -26,11 +26,11 @@ Cabal-Version:       >= 1.8
 
 source-repository head
     type:     git
-    location: https://github.com/parsci/cci-haskell
+    location: https://parsci.assembla.com/code/cci-haskell/git/nodes
 
 source-repository this
     type:     git
-    location: https://github.com/parsci/cci-haskell
+    location: https://parsci.assembla.com/code/cci-haskell/git/nodes
     tag:      0.0.1
 
 
