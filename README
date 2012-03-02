@@ -62,7 +62,9 @@ when making ORNL CCI into a shared library.
 # Get ORNL CCI 0.1a1 release.
 # For parsci folks, this can be achieved by issuing:
 git clone git@git.assembla.com:cci-ornl.git cci
+cd cci
 git checkout v0.1a1
+cd ..
 
 # For the rest of the world, you have to request a copy of the 0.1a1 release 
 # to ORNL:
