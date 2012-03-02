@@ -413,11 +413,12 @@ connectionMaxSendSize (Connection pconn) = #{peek cci_connection_t, max_send_siz
 --  * driver-specific errors
 --
 accept :: Event s  -- ^ A connection request event previously returned by 'getEvent'
-       -> IO Connection
-accept (Event penv) = alloca$ \ppconn ->
-    cci_accept penv ppconn >>= cci_check_exception >> peek ppconn
+       -> WordPtr
+       -> IO ()
+accept (Event penv) pctx =
+    cci_accept penv (wordPtrToPtr pctx) >>= cci_check_exception
 
-foreign import ccall unsafe cci_accept :: Ptr EventV -> Ptr Connection -> IO CInt
+foreign import ccall unsafe cci_accept :: Ptr EventV -> Ptr () -> IO CInt
 
 
 
@@ -1025,24 +1026,25 @@ data EventV
 -- | Retrieves the public data contained in an event.
 getEventData :: Event s -> IO (EventData s)
 getEventData ev@(Event pev) = do
-    st <- #{peek cci_event_t, type} pev
-    case st::CInt of
+    t <- #{peek cci_event_t, type} pev
+    case t::CInt of
       #{const CCI_EVENT_SEND} -> 
           liftM3 EvSend (#{peek cci_event_send_t, context} pev)
-                        (fmap ctoEnum$  #{peek cci_event_send_t, status} pev)
+                        (fmap ctoEnum$ #{peek cci_event_send_t, status} pev)
                         (#{peek cci_event_send_t, connection} pev)
       #{const CCI_EVENT_RECV} -> 
           liftM2 EvRecv (join$ liftM2 mkEventBytes
                                       (#{peek cci_event_recv_t, ptr} pev) 
                                       (#{peek cci_event_recv_t, len} pev))
                         (#{peek cci_event_recv_t, connection} pev)
-      #{const CCI_EVENT_CONNECT_ACCEPTED} -> 
-          liftM2 EvConnectAccepted (fmap ptrToWordPtr$ #{peek cci_event_connect_accepted_t, context} pev) 
-                                   (#{peek cci_event_recv_t, connection} pev)
-      #{const CCI_EVENT_CONNECT_TIMEDOUT} -> 
-          fmap EvConnectTimedOut (#{peek cci_event_connect_timedout_t, context} pev) 
-      #{const CCI_EVENT_CONNECT_REJECTED} -> 
-          fmap EvConnectRejected (#{peek cci_event_connect_rejected_t, context} pev) 
+      #{const CCI_EVENT_CONNECT} -> do
+          st <- #{peek cci_event_connect_t, status} pev
+          liftM2 EvConnect (fmap ptrToWordPtr$ #{peek cci_event_connect_t, context} pev) 
+                           (toEither st$ #{peek cci_event_connect_t, connection} pev)
+      #{const CCI_EVENT_ACCEPT} -> do
+          st <- #{peek cci_event_accept_t, status} pev
+          liftM2 EvAccept (fmap ptrToWordPtr$ #{peek cci_event_accept_t, context} pev) 
+                          (toEither st$ #{peek cci_event_accept_t, connection} pev)
       #{const CCI_EVENT_CONNECT_REQUEST} -> 
           liftM2 (EvConnectRequest ev) (join$ liftM2 mkEventBytes
                                               (#{peek cci_event_connect_request_t, data_ptr} pev) 
@@ -1053,11 +1055,15 @@ getEventData ev@(Event pev) = do
       #{const CCI_EVENT_ENDPOINT_DEVICE_FAILED} -> 
           fmap EvEndpointDeviceFailed (#{peek cci_event_endpoint_device_failed_t, endpoint} pev) 
           
-      _ -> error$ "getEventData: unexpected event type: "++show st
+      _ -> error$ "getEventData: unexpected event type: "++show t
   where
     mkEventBytes p len = return$ EventBytes (p,fromIntegral (len::CInt))
     ctoEnum :: Enum a => CInt -> a
     ctoEnum = toEnum . fromIntegral
+    toEither :: CInt -> IO Connection -> IO (Either Status Connection)
+    toEither #{const CCI_SUCCESS} c = fmap Right c
+    toEither st                   _ = return$ Left$ ctoEnum st 
+
 
 
 -- | Bytes owned by an 'Event'. They will be released when the event is returned.
@@ -1116,25 +1122,22 @@ data EventData s =
 
     -- | A new outgoing connection was successfully accepted at the
     -- peer; a connection is now available for data transfer.
+    -- If a connection request is rejected or fails otherwise,
+    -- an error code will be provided instead of a connection.
     --
     -- Contains the context given to 'connect'.
     --
-  | EvConnectAccepted WordPtr Connection
+  | EvConnect WordPtr (Either Status Connection)
 
-    -- | A new outgoing connection did not complete the accept/connect
-    -- handshake with the peer in the time specified as argument to
-    -- 'connect'. CCI has therefore given up attempting to continue to 
-    -- create this connection.
+    -- | A new incoming connection was successfully accepted
+    -- provided that the status field is 'SUCCESS';
+    -- a connection is now available for data transfer.
+    -- If accepting the connection fails for whatever reason,
+    -- an error code will be provided instead of a connection.
     --
-    -- Contains the context given to 'connect'.
+    -- Contains the context given to 'accept'.
     --
-  | EvConnectTimedOut WordPtr
-
-    -- | A new outgoing connection was rejected by the server.
-    --
-    -- Contains the context given to 'connect'.
-    --
-  | EvConnectRejected WordPtr
+  | EvAccept WordPtr (Either Status Connection)
 
     -- | An incoming connection request from a client.
     --

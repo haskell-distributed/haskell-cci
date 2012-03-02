@@ -5,7 +5,7 @@
 --
 
 Name:         cci
-Version:      0.0.1
+Version:      0.1.0
 Synopsis:     Bindings for the CCI networking library
 Description:  The CCI project is an open-source communication interface that 
               aims to provide a simple and portable API, high performance, 
@@ -31,7 +31,7 @@ source-repository head
 source-repository this
     type:     git
     location: https://parsci.assembla.com/code/cci-haskell/git/nodes
-    tag:      0.0.1
+    tag:      0.1.0
 
 
 Library

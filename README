@@ -61,15 +61,14 @@ when making ORNL CCI into a shared library.
 # For parsci folks, this can be achieved by issuing:
 git clone --branch topic/verbs git@git.assembla.com:cci-ornl.git cci
 
-# For the rest of the world, you probably have to request read access to the 
-# ORNL CCI repo:
+# For the rest of the world, you have to request a copy of the 0.1a1 release 
+# to ORNL:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
-# get the topic/verbs branch
-git clone --branch topic/verbs git@github.com:CCI/cci.git cci
-# ... and then apply a patch to it: 
-cd cci
-git am --signoff < ../0001-verbs-Sets-connection-field-of-receive-events-was-al.patch
-cd ..
+# or via the mailing list:
+http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
+
+tar -xzf cci-0.1a1.tar.gz
+mv cci-0.1a1 cci
 
 cabal configure -f "examples static-verbs"
 

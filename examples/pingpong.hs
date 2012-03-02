@@ -5,20 +5,21 @@
 --
 
 
-import Control.Monad         ( forever, void, forM_, replicateM_ )
-import qualified Data.ByteString as B  ( empty, take, length )
+import Control.Monad         ( forever, void, forM_, replicateM_, when )
+import qualified Data.ByteString as B  ( empty, take, length, head, singleton, null )
 import Data.ByteString.Char8 ( pack, unpack )
 import Data.ByteString.Unsafe ( unsafePackCStringLen )
 import Data.Maybe            ( isNothing, fromJust )
 import Data.Time             ( getCurrentTime, diffUTCTime )
 import Data.Word             ( Word64 )
+import Foreign.Storable      ( poke )
 import Foreign.Marshal.Alloc ( allocaBytesAligned )
 import Network.CCI           ( initCCI, withEndpoint, endpointURI, accept, Endpoint
                              , pollWithEventData, EventData(..), send, Connection
                              , connect, ConnectionAttributes(..), connectionMaxSendSize
                              , createRMARemoteHandle, RMARemoteHandle, rmaWrite
                              , withConnectionRMALocalHandle, rmaHandle2ByteString
-                             , unsafePackEventBytes, packEventBytes
+                             , unsafePackEventBytes, packEventBytes, disconnect
                              )
 import Numeric               ( fromRat )
 import Text.Printf           ( printf )
@@ -61,7 +62,7 @@ main = do
       initCCI
       withEndpoint Nothing$ \(ep,_fd) -> do
         endpointURI ep >>= putStrLn
-        if oIsServer o then goServer ep o
+        if oIsServer o then forever$ goServer ep o
           else goClient ep o
      else
       putStrLn$ unlines$ errors ++ [ usageInfo header options ]
@@ -73,13 +74,18 @@ goServer :: Endpoint -> Options -> IO ()
 goServer ep _o = do
     pollWithEventData ep$ \evd ->
         case evd of
-          EvConnectRequest ev _bs _cattr  -> void$ accept ev
+          EvConnectRequest ev _bs _cattr  -> void$ accept ev 0
+          _ -> print evd
+
+    pollWithEventData ep$ \evd ->
+        case evd of
+          EvAccept 0 (Right _conn)  -> return ()
           _ -> print evd
 
     (conn,cs) <- pollWithEventData ep$ \evd ->
         case evd of
           EvRecv ebs conn -> packEventBytes ebs >>= return . (,) conn . read . unpack
-          _ -> print evd >> return undefined
+          _ -> error ("goServer: unexpected event"++show evd)
     case cs of
       AM     -> connectionMaxSendSize conn >>= goServer'
       RMA sz -> do 
@@ -89,25 +95,33 @@ goServer ep _o = do
             goServer' sz
   where
     goServer' sz = allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
-      unsafePackCStringLen (cbuf,fromIntegral sz) >>= \sbuf ->
-        forever$ pollWithEventData ep$ \evd ->
+      unsafePackCStringLen (cbuf,fromIntegral sz) >>= \sbuf -> do
+        Just conn <- loopWhileM isNothing$ pollWithEventData ep$ \evd ->
           case evd of
-            EvRecv ebs conn     -> unsafePackEventBytes ebs >>= \bs -> send conn (B.take (B.length bs) sbuf) 0 []
-            EvSend _ _ _        -> return ()
-            _ -> print evd
-      
+            EvRecv ebs conn -> do
+                bs <- unsafePackEventBytes ebs
+                if not (B.null bs) && B.head bs == 1 then
+                  return$ Just conn
+                 else
+                  send conn (B.take (B.length bs) sbuf) 0 [] >> return Nothing
+            EvSend _ _ _    -> return Nothing
+            _ -> print evd >> return Nothing
+
+        disconnect conn
+
 
 goClient :: Endpoint -> Options -> IO ()
 goClient ep o = do
     connect ep (fromJust$ oServerURI o) B.empty CONN_ATTR_RO 0 Nothing
     conn <- pollWithEventData ep$ \evd ->
         case evd of
-          EvConnectAccepted _ctx conn -> return conn
-          _                           -> print evd >> return undefined
+          EvConnect _ctx (Right conn) -> return conn
+          _                           -> print evd >> return (error "goClient: unexpected event.")
     mrmah <- exchangeConnectionSpecs ep o conn
     sz <- if isNothing mrmah then fmap fromIntegral$ connectionMaxSendSize conn
             else return$ fromIntegral$ fromJust$ oRMA o
-    allocaBytesAligned sz 4096 $ \cbuf ->
+    allocaBytesAligned sz 4096 $ \cbuf -> do
+      when (sz>0)$ poke cbuf 0
       unsafePackCStringLen (cbuf,sz) >>= \sbuf ->
         case mrmah of
           Nothing -> goClient' conn sbuf Nothing
@@ -134,17 +148,27 @@ goClient ep o = do
             bw = fromIntegral current_size / lat;
         printf "%8d\t%8.2f us\t\t%8.2f MB/s\n" current_size (fromRat lat :: Double) (fromRat bw :: Double)
 
+      -- say goodbye
+      send conn (B.singleton 1) 0 []
+      void$ loopWhileM id$ pollWithEventData ep$ \evd ->
+        case evd of
+          EvSend _ _ _    -> return False
+          _               -> error ("goClient': unexpected event: "++show evd)
+      disconnect conn
+
+
     testRoundTrip conn _sbuf (Just (lh,rh)) msg_size = do
         rmaWrite conn Nothing rh 0 lh 0 (fromIntegral msg_size) 0 []
         void$ loopWhileM id$ pollWithEventData ep$ \evd ->
           case evd of
             EvSend _ _ _ -> return False
-            _               -> print evd >> return True
+            _            -> print evd >> return True
+
     testRoundTrip conn sbuff Nothing msg_size = do
         send conn (B.take (fromIntegral msg_size) sbuff) 0 []
         void$ loopWhileM id$ pollWithEventData ep$ \evd ->
           case evd of
-            EvRecv _ _conn -> return False
+            EvRecv _ _conn  -> return False
             EvSend _ _ _    -> return True
             _               -> print evd >> return True
 

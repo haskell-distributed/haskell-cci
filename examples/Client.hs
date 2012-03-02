@@ -25,7 +25,7 @@ main = do
       _ <- loopWhileM id$ pollWithEventData ep$ \ev -> 
          case ev of
 
-           EvConnectAccepted ctx conn ->
+           EvConnect ctx (Right conn) ->
              do print ctx
                 send conn (pack "ping!") 1 []
                 return True
