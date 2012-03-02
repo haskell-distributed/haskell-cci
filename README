@@ -3,7 +3,7 @@ This repository contains Haskell bindings for the CCI library.
 See COPYING for license information.
 
 CCI API:
-  https://parsci.assembla.com/code/cci-haskell/git/nodes/verbs/Network/CCI.hsc
+  https://parsci.assembla.com/code/cci-haskell/git/nodes/master/Network/CCI.hsc
 
 
 == Building haddock documentation == 
@@ -14,8 +14,10 @@ cabal haddock
 
 == Building cci for using the UDP sockets ==
 
-# Install cci first. You'll have to request it at:
+# Install the 0.1a1 release of cci first. You'll have to request it at:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
+# or via the mailing list:
+http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
 
 cabal configure -f examples
 
