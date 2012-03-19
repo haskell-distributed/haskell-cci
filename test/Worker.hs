@@ -4,6 +4,20 @@
 -- See the accompanying COPYING file for license information.
 --
 
+-- This file implements worker processes.
+--
+-- A worker process runs a loop which takes commands from a driver process and executes them.
+-- The commands are CCI operations that the worker executes upon command reception. The
+-- driver communicates with the workers through the standard input and output. The workers
+-- communicate among themselves through CCI. 
+--
+-- The driver process must issue commands to indicate to the workers which connection requests 
+-- to accept and reject before the connection requests events arrive.
+-- 
+-- Worker processes are spawned by the driver process.
+--
+-- See test/Driver.hs
+
 import Prelude hiding          ( catch )
 import Control.Exception       ( catch, finally, SomeException )
 import Control.Monad           ( void )
@@ -90,9 +104,11 @@ loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
 
 type ConnReqs = IORef ConnReqsD
 
+-- | This is a map that specifies whether a connection request with a specific identifier
+-- should be accepted or rejected upon reception.
 data ConnReqsD = ConnReqsD
-    { connAccept :: S.Set WordPtr
-    , connReject :: S.Set WordPtr
+    { connAccept :: S.Set WordPtr -- ^ Requests with these identifiers should be accepted.
+    , connReject :: S.Set WordPtr -- ^ Requests with these identifiers should be rejected.
     }
 
 emptyConnReq :: IO ConnReqs

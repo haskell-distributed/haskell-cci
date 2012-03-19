@@ -43,6 +43,9 @@ main = do
     check io = io >>= \c -> case c of { ExitSuccess -> return (); _ -> exitWith c }
 
 
+-- | Tests a property with a custom generated trace of commands.
+-- The property takes the issued commands, the responses that each process provided
+-- and must answer if they are correct.
 testProp :: ([(Int,Command)] -> [[Response]] -> Bool) -> IO ()
 testProp f = do
    tr <- genTrace nProc
@@ -54,11 +57,22 @@ testProp f = do
 
 -- Trace generation
 
-genTrace :: Int -> IO [(Int,(Int,Command))]
+-- | Takes the amount of processes, and generates commands for an interaction among them.
+genTrace :: Int -> IO Interaction
 genTrace n = return$ runCommandGenDefault 0$ 
                mapM (uncurry genInteraction) (zip (n-1:[0..]) [0..n-1])
                  >>= foldM mergeI []
 
+-- | An interaction is a list of commands for a given process.
+-- Because an interaction might be the result of merging simpler
+-- interactions, each command is attached with an identifier of the
+-- simplest interaction that contained it. 
+--
+-- @[(interaction_id,(destinatary_process_id,command))]@
+--
+-- The purpose of the interaction identifier is to allow to shrink
+-- a failing test case by removing the interactions that do not affect 
+-- the bug reproduction.
 type Interaction = [(Int,(Int,Command))]
 
 
@@ -84,7 +98,8 @@ getRandom = modifyR random
 getRandomR :: Random a => (a,a) -> CommandGen a
 getRandomR = modifyR . randomR
 
-
+-- | Merges two interactions by randomly interleaving the commands. The 
+-- order of the commands in each interaction is preserved.
 mergeI :: Interaction -> Interaction -> CommandGen Interaction
 mergeI xs [] = return xs
 mergeI [] ys = return ys
@@ -112,6 +127,10 @@ mergeI xss@(x:xs) yss@(y:ys) = getRandom >>= \b ->
       else liftM (y:)$ mergeI xss ys
 -}
 
+
+-- | There are quite a few identifiers which are used to organize the data.
+--
+-- This datatype stores generators for each kind of identifier.
 data CommandGenState = CommandGenState
     { connG :: WordPtr
     , sendG :: WordPtr
@@ -131,6 +150,10 @@ generateConnectionId :: CommandGen WordPtr
 generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 
 
+-- | Takes two processes identifiers and generates an interaction between them.
+--
+-- Right now the interactions consist on stablishing an initial connection and 
+-- then having the first process send messages to second one.
 genInteraction :: Int -> Int -> CommandGen Interaction 
 genInteraction p0 p1 = do
     let numSends = 5
