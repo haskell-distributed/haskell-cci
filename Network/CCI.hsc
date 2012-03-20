@@ -413,7 +413,7 @@ connectionMaxSendSize (Connection pconn) = #{peek cci_connection_t, max_send_siz
 --  * driver-specific errors
 --
 accept :: Event s  -- ^ A connection request event previously returned by 'getEvent'
-       -> WordPtr
+       -> WordPtr  -- ^ A context value which is passed in an 'EvAccept' event.
        -> IO ()
 accept (Event penv) pctx =
     cci_accept penv (wordPtrToPtr pctx) >>= cci_check_exception
@@ -494,7 +494,7 @@ connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
               #{poke struct timeval, tv_usec} ptv usec
               fconnect ptv
 
-foreign import ccall unsafe cci_connect :: Ptr EndpointV -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe "connect" cci_connect :: Ptr EndpointV -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
 
 
 -- | Tears down an existing connection.
@@ -1389,7 +1389,11 @@ data Status =
    -- actually received the message or not.
    --
    -- This error code won't occur for unreliable sends.
+   -- 
+   -- One other place where @ETIMEDOUT@ appears is when an outgoing
+   -- connection request expires (in an 'EvConnect' event).
   | ETIMEDOUT
+  | ECONNREFUSED
   | ENOMEM    -- ^ No more memory
   | ENODEV    -- ^ No device available
   | EBUSY     -- ^ Resource busy (e.g. port in use)
@@ -1423,6 +1427,7 @@ instance Enum Status where
      ERR_NOT_FOUND       -> #{const CCI_ERR_NOT_FOUND}
      EINVAL              -> #{const CCI_EINVAL}
      ETIMEDOUT           -> #{const CCI_ETIMEDOUT}
+     ECONNREFUSED        -> #{const CCI_ECONNREFUSED}
      ENOMEM              -> #{const CCI_ENOMEM}
      ENODEV              -> #{const CCI_ENODEV}
      EBUSY               -> #{const CCI_EBUSY}
@@ -1447,6 +1452,7 @@ instance Enum Status where
      #{const CCI_ERR_NOT_FOUND}       -> ERR_NOT_FOUND
      #{const CCI_EINVAL}              -> EINVAL
      #{const CCI_ETIMEDOUT}           -> ETIMEDOUT
+     #{const CCI_ECONNREFUSED}        -> ECONNREFUSED
      #{const CCI_ENOMEM}              -> ENOMEM
      #{const CCI_ENODEV}              -> ENODEV
      #{const CCI_EBUSY}               -> EBUSY
