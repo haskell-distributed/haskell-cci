@@ -31,12 +31,13 @@ import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr )
 
 import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
-                               , withEventData, EventData(..), disconnect, send, Connection
-                               , accept, reject, Event
+                               , pollWithEventData, EventData(..), disconnect, send, Connection
+                               , accept, reject, Event, Status(..), unsafePackEventBytes
+                               , endpointURI
                                )
 
 import Commands                ( initCommands,readCommand
-                               , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit)
+                               , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
                                          , EndpointDeviceFailed, Bye
@@ -47,25 +48,29 @@ import Commands                ( initCommands,readCommand
 
 main :: IO ()
 main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
-    initCCI
     initCommands
+    initCCI
     rcm <- emptyConnMap
     rcrs <- emptyConnReq
     withEndpoint Nothing$ \(ep,_fd) -> do
-      void$ loopWhileM id$ readCommand >>= \cm ->
+      endpointURI ep >>= putStrLn
+      void$ loopWhileM id$ readCommand >>= \cm -> do
          case cm of
 
-           ConnectTo uri i mt ->
+           ConnectTo uri _ i mt -> do
+               sendResponse (Error$ "connect: "++uri++" "++show i++" "++show mt)
                connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_UU i mt
+               sendResponse (Error$ "hhhh")
+               return True
 
-           Accept i -> markAccept i rcrs
+           Accept i -> markAccept i rcrs >> return True
 
-           Reject i -> markReject i rcrs
+           Reject i -> markReject i rcrs >> return True
 
-           Disconnect i -> getConn i rcm >>= disconnect
+           Disconnect i -> getConn i rcm >>= disconnect >> return True
 
            Send i ctx bs -> 
-               getConn i rcm >>= \c -> send c bs ctx []
+               getConn i rcm >>= \c -> send c bs ctx [] >> return True
 
            WaitEvent -> events rcm rcrs ep >> return True
 
@@ -73,25 +78,30 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
 
   where
     events rcm rcrs ep = do
-        void$ loopWhileM id$ withEventData ep$ maybe (return True)$ \ev -> do
+        void$ pollWithEventData ep$ \ev -> do
             case ev of
-              EvConnectAccepted ctx conn -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
+              EvAccept ctx (Right conn) ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
+
+              EvConnect ctx (Right conn) -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
                
               EvSend ctx st conn -> getConnId conn rcm >>= \c -> sendResponse (SendCompletion c ctx st) 
 
-              EvRecv bs conn -> getConnId conn rcm >>= \c -> sendResponse (Recv c bs)
+              EvRecv bs conn -> do 
+                      c   <- getConnId conn rcm
+                      bs' <- unsafePackEventBytes bs
+                      sendResponse (Recv c bs')
 
-              EvConnectRequest e bs cattrs -> handleConnectionRequest rcm rcrs e bs cattrs
+              EvConnectRequest e bs cattrs -> do
+                      bs' <- unsafePackEventBytes bs
+                      handleConnectionRequest rcm rcrs e bs' cattrs
 
-              EvConnectTimedOut ctx -> sendResponse (TimedOut ctx)
+              EvConnect ctx (Left ETIMEDOUT) -> sendResponse (TimedOut ctx)
 
-              EvConnectRejected ctx -> sendResponse (Rejected ctx)
+              EvConnect ctx (Left ECONNREFUSED) -> sendResponse (Rejected ctx)
 
               EvKeepAliveTimedOut conn -> getConnId conn rcm >>= \c -> sendResponse (KeepAliveTimedOut c)
 
               EvEndpointDeviceFailed _ -> sendResponse EndpointDeviceFailed
-
-            return False
 
 
 -- | @loopWhileM p io@ performs @io@ repeteadly while its result satisfies @p@.
@@ -122,14 +132,14 @@ markReject :: WordPtr -> ConnReqs -> IO ()
 markReject i rcrs = atomicModifyIORef rcrs$ 
      \cr -> (cr { connReject = S.insert i (connReject cr) } , ())
 
-handleConnectionRequest :: ConnMap -> ConnReqs -> Event -> ByteString -> ConnectionAttributes -> IO ()
+handleConnectionRequest :: ConnMap -> ConnReqs -> Event s -> ByteString -> ConnectionAttributes -> IO ()
 handleConnectionRequest rcrm rcrs ev bs _cattrs = do
     r <- atomicModifyIORef rcrs$ \cr ->
         if S.member w (connAccept cr) then (cr { connAccept = S.delete w (connAccept cr) } , ReqAccepted w)
           else if S.member w (connReject cr) then (cr { connReject = S.delete w (connReject cr) } , ReqRejected w)
             else (cr,ReqIgnored w)
     case r of
-      ReqAccepted _ -> accept ev >>= \c -> insertConn w c rcrm >> sendResponse r
+      ReqAccepted w -> accept ev w >> sendResponse r
       ReqRejected _ -> reject ev >> sendResponse r
       _ -> sendResponse r
   where

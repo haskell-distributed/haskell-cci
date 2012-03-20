@@ -9,13 +9,13 @@ module Commands where
 import Data.ByteString       ( ByteString )
 import Data.Word             ( Word64 )
 import Foreign.Ptr           ( WordPtr )
-import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout)
+import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout, hFlush)
 
 import Network.CCI           ( Status(..) )
 
 
 data Command =
-      ConnectTo String WordPtr (Maybe Word64)
+      ConnectTo String Int WordPtr (Maybe Word64)
     | Send WordPtr WordPtr ByteString
     | Accept WordPtr
     | Reject WordPtr
@@ -52,8 +52,9 @@ initCommands = do
 readCommand :: IO Command
 readCommand = fmap read getLine
 
+
 sendResponse :: Response -> IO ()
-sendResponse = print
+sendResponse r = print r >> hFlush stdout
 
 
 

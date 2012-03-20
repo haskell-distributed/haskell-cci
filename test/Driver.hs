@@ -10,10 +10,11 @@ import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
 import Data.List       ( sort )
+import Debug.Trace     ( trace )
 import Foreign.Ptr     ( WordPtr )
 import System.FilePath ( (</>) )
 import System.Exit     ( exitFailure,exitWith,ExitCode(..))
-import System.IO       ( Handle, hGetLine, hPrint )
+import System.IO       ( Handle, hGetLine, hPrint, hFlush, hReady, hIsClosed, hIsOpen )
 import System.Process  ( rawSystem,runInteractiveProcess,terminateProcess,readProcess, ProcessHandle)
 import System.Random   ( RandomGen(..), Random(..), StdGen, mkStdGen )
 
@@ -29,16 +30,18 @@ workerPath :: FilePath
 workerPath = testFolder </> "Worker"
 
 nProc :: Int
-nProc = 4
+nProc = 2
 
 main :: IO ()
 main = do
     putStrLn "compiling worker program ..."
-    check$ rawSystem "ghc" [ "--make","-lcci","-idist"</>"build","-i.","-i"++testSrcFolder
-                           , "-odir",testFolder,"-hidir",testFolder,testSrcFolder</>"Worker.hs"
+    check$ rawSystem "ghc" [ "--make","-idist"</>"build","-i.","-i"++testSrcFolder
+                           , "-outputdir",testFolder,"-o",testFolder</>"Worker",testSrcFolder</>"Worker.hs"
+                           , "dist" </> "build" </> "HScci-0.1.0.o"
+                           , "-lrdmacm", "-lltdl"
                            ]
-    testProp undefined
-    
+    testProp$ \t rs -> trace (show t ++ show rs) True
+
   where
     check io = io >>= \c -> case c of { ExitSuccess -> return (); _ -> exitWith c }
 
@@ -49,6 +52,7 @@ main = do
 testProp :: ([(Int,Command)] -> [[Response]] -> Bool) -> IO ()
 testProp f = do
    tr <- genTrace nProc
+   print tr
    let tr' = map snd tr
    (_,rss) <- runProcessM nProc$ runProcs tr'
    when (not (f tr' rss)) exitFailure 
@@ -115,7 +119,7 @@ mergeI' i0 l0 i1 l1 = do
     return$ insertI 0 i is i0 i1
   where
     -- | Given indexes (i:is) in [0..l0+l1-1] inserts elements of i0 among elements of i1
-	-- so the positions of the i0 elements in the result match those of the indexes (i:is)
+    -- so the positions of the i0 elements in the result match those of the indexes (i:is)
     insertI p i is i0 i1 
         | p<i, (ir1:irs1) <- i1            = ir1 : insertI (p+1) i is i0 irs1
         | (i':is') <- is, (ir0:irs0) <- i0 = ir0 : insertI (p+1) i' is' irs0 i1
@@ -156,13 +160,14 @@ generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 -- then having the first process send messages to second one.
 genInteraction :: Int -> Int -> CommandGen Interaction 
 genInteraction p0 p1 = do
-    let numSends = 5
+    let numSends = 1
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
     sends <- genSends cid 0 numSends
-    mergeI ((i,(p1,Accept cid)): zip (repeat i) (zip (repeat p0)$ ConnectTo "" cid mt : sends))
-           (zip (repeat i)$ zip (repeat p1)$ replicate (numSends+1) WaitEvent)
+    fmap (((i,(p1,Accept cid)):) . ((i,(p1,WaitEvent)):))$
+      mergeI (zip (repeat i) (zip (repeat p0)$ ConnectTo "" p1 cid mt : WaitEvent : sends))
+             (zip (repeat i)$ zip (repeat p1)$ replicate numSends WaitEvent)
   where
     getRandomTimeout = do
         b <- getRandom
@@ -189,7 +194,13 @@ runProcessM n m = do
     fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps)
 
 runProcs :: [(Int,Command)] -> ProcessM ()
-runProcs tr = forM_ tr$ \(i,c) -> sendCommand c i
+runProcs tr = do
+   forM_ tr$ \(i,c) -> sendCommand c i
+   fmap fst get >>= \ps -> forM_ (zip [0..] ps)$ \(i,p) -> 
+      void$ loopWhileM (/=Bye)$ do
+          isClosed <- lift$ hIsClosed (h_out p)
+          if isClosed then return Bye
+            else readResponse p i
 
 
 -- | Process communication
@@ -217,19 +228,34 @@ launchWorker = do
 sendCommand :: Command -> Int -> ProcessM ()
 sendCommand c i = do
     p <- getProc i
-    lift$ hPrint (h_in p) c
-    void$ loopWhileM (/=Idle)$ do
-        r <- lift$ fmap (read :: String -> Response)$ hGetLine (h_out p)
+    c' <- case c of
+            ConnectTo _ pid cid mt -> 
+               getProc pid >>= \pd -> return$ ConnectTo (uri pd) pid cid mt
+            _ -> return c
+    lift$ putStrLn$ "sending "++show c' 
+    lift$ hPrint (h_in p) c'
+    lift$ hFlush (h_in p)
+    lift$ putStrLn$ "sent" 
+    readResponses p i
+
+
+readResponses :: Process -> Int -> ProcessM ()
+readResponses p i = do
+    isOpen <- lift$ hIsOpen (h_out p)
+    lift$ putStrLn$ "isOpen "++show isOpen
+    when isOpen$ do
+        inputReady <- lift$ hReady (h_out p)
+        when inputReady$ void$ loopWhileM (/=Idle)$  readResponse p i
+
+
+readResponse :: Process -> Int -> ProcessM Response
+readResponse p i = do
+        lift$ putStrLn "hola5"
+        r <- lift$ fmap read $ hGetLine (h_out p)
         unless (r==Idle)$ addResponse r i
+        lift$ putStrLn$ "hola6 " ++ show r
         return r
 
-readResponses :: Int -> ProcessM ()
-readResponses i = do
-    p <- getProc i
-    void$ loopWhileM (/=Idle)$ do
-        r <- lift$ fmap  (read :: String -> Response)$ hGetLine (h_out p)
-        unless (r==Idle)$ addResponse r i
-        return r
 
 addResponse :: Response -> Int -> ProcessM ()
 addResponse resp n = modify (\(ps,rs) -> (ps,insertR n resp rs))
