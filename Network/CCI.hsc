@@ -494,7 +494,7 @@ connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
               #{poke struct timeval, tv_usec} ptv usec
               fconnect ptv
 
-foreign import ccall unsafe "connect" cci_connect :: Ptr EndpointV -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe cci_connect :: Ptr EndpointV -> CString -> Ptr CChar -> Word32 -> CInt -> Ptr () -> CInt -> Ptr () -> IO CInt
 
 
 -- | Tears down an existing connection.
