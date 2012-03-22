@@ -18,24 +18,22 @@
 -- 
 -- Worker processes are spawned by the driver process.
 --
--- See test/Tests.hs for an example of driver process.
+-- See test/Props.hs for an example of driver process.
 
 import Prelude hiding          ( catch )
-import Control.Exception       ( catch, finally, SomeException )
-import Control.Monad           ( void )
+import Control.Exception       ( catch, SomeException )
 import Data.ByteString as B    ( ByteString, concat )
 import Data.ByteString.Lazy    ( toChunks, fromChunks )
 import Data.Binary             ( decode, encode )
 import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
 import qualified Data.Map as M ( empty, Map, lookup, insert )
-import Data.Maybe              ( isNothing, fromJust )
 import qualified Data.Set as S ( empty, Set, insert, member, delete )
 import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr )
 import System.IO               ( hPutStrLn, stderr )
 
 import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
-                               , tryWithEventData, EventData(..), disconnect, send, Connection
+                               , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
                                , endpointURI, pollWithEventData
                                )

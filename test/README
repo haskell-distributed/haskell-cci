@@ -1,0 +1,66 @@
+Files in this folder implement test generation.
+The test are run by issuing the following commands from the cci-haskell parent folder:
+
+cabal config -f "examples static-verbs" --enable-tests
+cabal build
+cabal test
+
+There are worker processes which test the CCI features, and there is a driver process
+which tell the workers what they must do. The driver communicates with the workers
+through the standard input and output.
+
+Each worker generates in addition a file worker-stderr<N>.txt which contains its
+standard error output. These files are useful for debugging test runs.
+
+A test is written as in test/Props.hs:
+
+1. main = do
+2.    errs <- testProp defaultTestConfig "example prop" (\_cmds _rs -> True)
+3.    mapM_ print errs
+4.    when (not (null errs)) exitFailure
+
+Line (2) generates multiple tests and test a predicate over them. That is,
+it generates the commands for the workers, collects the worker responses and then 
+evaluates a predicate feeding it with the commands and the responses. If the 
+property holds, the test passes otherwise the provided commands and responses are
+collected in the result of @testProp@. The previous procedure is repeated as many 
+times as specified in the @defaultTestConfig@ parameter:
+
+-- | Parameters for running tests
+data TestConfig = TestConfig 
+    { nProcesses :: Int -- ^ Number of processes in tests
+    , nSends     :: Int -- ^ Number of sends in each interaction
+    , nTries     :: Int -- ^ Number of tests to run 
+    , nErrors    :: Int -- ^ Number of errors to collect before stopping
+    }
+
+defaultTestConfig :: TestConfig
+defaultTestConfig = TestConfig
+    { nProcesses = 2
+    , nSends     = 1
+    , nTries     = 5
+    , nErrors    = 2
+    }
+
+The exitFailure in line (4) causes the program to terminate with a non-zero
+code. This tells the cabal framework that the test failed.
+
+During execution of @testProp@, when a command sequence is found that causes
+the predicate to yield false, the command sequence is pruned of superfluous
+commands before presenting collecting it as part of the result. A command
+is considered superfluous if removing it still causes the predicate to yield
+False.
+
+The function @runCommands@ from module TestGen can be used to rerun commands
+that produced a bug.
+
+The driver process first spawns all the worker processes and then sends 
+commands to each worker once at a time in some random (but reproducible)
+order. The workers respond back with an Idle response when they have finished
+processing a command so the driver can deliver some other command to some
+potentially different worker. This strong synchronization between workers
+and driver should help making the bugs reproducible.
+
+
+
+

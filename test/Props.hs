@@ -6,7 +6,7 @@ import TestGen         ( testProp, defaultTestConfig )
 
 main :: IO ()
 main = do
-    errs <- testProp defaultTestConfig "example prop" (\_tr _rs -> True)
+    errs <- testProp defaultTestConfig "example prop" (\_cmds _rs -> True)
     mapM_ print errs
     when (not (null errs)) exitFailure
 

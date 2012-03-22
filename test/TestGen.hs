@@ -6,7 +6,7 @@
 
 {-# LANGUAGE PatternGuards #-}
 module TestGen
-    ( testProp, TestConfig(..), defaultTestConfig, runTrace, Response(..)
+    ( testProp, TestConfig(..), defaultTestConfig, runCommands, Response(..)
     , Command(..), TestError
     ) where
 
@@ -61,16 +61,16 @@ testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
     go _g errors _ 0 = return errors
     go _g errors 0 _ = return errors
     go g errors errCount tryCount = do
-      (tr,g') <- genTrace c g
+      (tr,g') <- genCommands c g
       let tr' = map snd tr
-      me <- testTrace propName tr' (nProcesses c) f
+      me <- testCommands propName tr' (nProcesses c) f
       case me of
         Just err -> do err' <- shrink propName tr err (nProcesses c) f
                        go g' (err':errors) (errCount-1) (tryCount-1)
         Nothing  -> go g' errors errCount (tryCount-1)
 
-testTrace :: String -> [(Int,Command)] -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO (Maybe TestError)
-testTrace propName t nProc f = do
+testCommands :: String -> [(Int,Command)] -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO (Maybe TestError)
+testCommands propName t nProc f = do
       r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
                 ) `catch` \e -> return$ Left (t,[],show (e :: IOException))
       case r of
@@ -79,29 +79,29 @@ testTrace propName t nProc f = do
                        else return$ Just (t,rss,"failed prop: "++propName)
 
 
-shrinkTrace :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
-shrinkTrace tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+shrinkCommands :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
+shrinkCommands tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
 
 shrink :: String -> [(Int,(Int,Command))] -> TestError -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO TestError
-shrink propName tr err nProc f = go (shrinkTrace tr)
+shrink propName tr err nProc f = go (shrinkCommands tr)
   where
     go []       = return err 
     go (tr':trs) = do
-        me <- testTrace propName (map snd tr') nProc f 
+        me <- testCommands propName (map snd tr') nProc f 
         case me of
           Just err' -> shrink propName tr' err' nProc f
           Nothing   -> go trs
 
 
-runTrace :: [(Int,Command)] -> IO [[Response]]
-runTrace t = fmap snd$ runProcessM (1 + maximum (map fst t))$ runProcs t
+runCommands :: [(Int,Command)] -> IO [[Response]]
+runCommands t = fmap snd$ runProcessM (1 + maximum (map fst t))$ runProcs t
 
 
--- Trace generation
+-- Command generation
 
 -- | Takes the amount of processes, and generates commands for an interaction among them.
-genTrace :: TestConfig -> StdGen -> IO (Interaction,StdGen)
-genTrace c g = return$ runCommandGenDefault g$ 
+genCommands :: TestConfig -> StdGen -> IO (Interaction,StdGen)
+genCommands c g = return$ runCommandGenDefault g$ 
                mapM (uncurry (genInteraction c)) (zip (nProcesses c-1:[0..]) [0..nProcesses c-1])
                  >>= foldM mergeI []
 
