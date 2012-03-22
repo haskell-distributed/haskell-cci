@@ -19,7 +19,7 @@ import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
 import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput )
-import System.Process  ( terminateProcess, ProcessHandle, runInteractiveCommand)
+import System.Process  ( terminateProcess, ProcessHandle, runInteractiveProcess )
 import System.Random   ( Random(..), StdGen, mkStdGen )
 
 import Commands        ( Command(..), Response(..)  )
@@ -238,20 +238,19 @@ runProcs tr = do
 data Process = Process 
     { h_in :: Handle
     , h_out :: Handle
-    , h_err :: Handle
     , ph :: ProcessHandle
     , uri :: String
     }
 
 launchWorker :: Int -> IO Process
 launchWorker pid = do
-    -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
-    (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"
+    (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+    -- (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"
+    -- void$ forkIO$ hGetContents herr >>= writeFile ("worker-stderr"++show pid++".txt") >> putStrLn ("wrote "++show pid)
     puri <- hGetLine hout
     return Process 
         { h_in = hin
         , h_out = hout
-        , h_err = herr
         , ph = phandle
         , uri = puri
         }

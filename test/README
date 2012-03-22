@@ -9,9 +9,6 @@ There are worker processes which test the CCI features, and there is a driver pr
 which tell the workers what they must do. The driver communicates with the workers
 through the standard input and output.
 
-Each worker generates in addition a file worker-stderr<N>.txt which contains its
-standard error output. These files are useful for debugging test runs.
-
 A test is written as in test/Props.hs:
 
 1. main = do
