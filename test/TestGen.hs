@@ -22,6 +22,7 @@ import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput )
 import System.Process  ( terminateProcess, ProcessHandle, runInteractiveProcess )
 import System.Random   ( Random(..), StdGen, mkStdGen )
 
+
 import Commands        ( Command(..), Response(..)  )
 
 testFolder :: FilePath
@@ -198,7 +199,7 @@ genInteraction c p0 p1 = do
     cid <- generateConnectionId
     sends <- genSends cid p0 p1 0 0 (nSends c)
     return$ (i,(p1,Accept cid)):
-       (zip (repeat i) ( (p0,ConnectTo "" p1 cid mt) : (p1,WaitEvent) : (p1,WaitEvent) : (p0,WaitEvent) : sends))
+       (zip (repeat i) ( (p0,ConnectTo "" p1 cid mt) : (p0,WaitEventAsync) : (p1,WaitEvent) : (p1,WaitEvent) : sends))
   where
     getRandomTimeout = do
         b <- getRandom
@@ -213,7 +214,7 @@ genInteraction c p0 p1 = do
         let (waits0,w0') = if insertWaits0 then (replicate w0 (p0,WaitEvent),0) else ([],w0)
             (waits1,w1') = if insertWaits1 then (replicate w1 (p1,WaitEvent),0) else ([],w1)
         rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (i-1)
-        return$ waits0 ++ waits1 ++ (p0,Send 0 (fromIntegral i) (B.pack$ show i)) : rest
+        return$ waits0 ++ waits1 ++ (p0,Send cid (fromIntegral i) (B.pack$ show i)) : rest
 
 
 
@@ -243,7 +244,7 @@ data Process = Process
     }
 
 launchWorker :: Int -> IO Process
-launchWorker pid = do
+launchWorker _pid = do
     (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
     -- (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"
     -- void$ forkIO$ hGetContents herr >>= writeFile ("worker-stderr"++show pid++".txt") >> putStrLn ("wrote "++show pid)

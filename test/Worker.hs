@@ -39,7 +39,7 @@ import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttri
                                )
 
 import Commands                ( initCommands,readCommand
-                               , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent)
+                               , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent, WaitEventAsync)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
                                          , EndpointDeviceFailed, Idle
@@ -85,6 +85,8 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                sendResponse Idle >> processCommands rcm rcrs ep
 
            WaitEvent -> waitEvent rcm rcrs ep >> sendResponse Idle >> processCommands rcm rcrs ep
+
+           WaitEventAsync -> sendResponse Idle >> waitEvent rcm rcrs ep >> processCommands rcm rcrs ep
 
            Quit -> sendResponse Idle
 
