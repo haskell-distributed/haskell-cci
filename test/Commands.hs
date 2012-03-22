@@ -9,7 +9,7 @@ module Commands where
 import Data.ByteString       ( ByteString )
 import Data.Word             ( Word64 )
 import Foreign.Ptr           ( WordPtr )
-import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout, hFlush)
+import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout, hFlush, hReady)
 
 import Network.CCI           ( Status(..) )
 
@@ -51,6 +51,12 @@ initCommands = do
 
 readCommand :: IO Command
 readCommand = fmap read getLine
+
+tryReadCommand :: IO (Maybe Command)
+tryReadCommand = do
+  isReady <- hReady stdin
+  if isReady then fmap (Just . read) getLine
+    else return Nothing
 
 
 sendResponse :: Response -> IO ()

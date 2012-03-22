@@ -26,21 +26,23 @@ import Data.ByteString.Lazy    ( toChunks, fromChunks )
 import Data.Binary             ( decode, encode )
 import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
 import qualified Data.Map as M ( empty, Map, lookup, insert )
+import Data.Maybe              ( isNothing, fromJust )
 import qualified Data.Set as S ( empty, Set, insert, member, delete )
 import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr )
+import System.IO               ( hPutStrLn, stderr )
 
 import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
-                               , pollWithEventData, EventData(..), disconnect, send, Connection
+                               , tryWithEventData, EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
-                               , endpointURI
+                               , endpointURI, pollWithEventData
                                )
 
 import Commands                ( initCommands,readCommand
                                , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
-                                         , EndpointDeviceFailed, Bye
+                                         , EndpointDeviceFailed, Bye, Idle
                                          )
                                , sendResponse
                                )
@@ -54,36 +56,63 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
     rcrs <- emptyConnReq
     withEndpoint Nothing$ \(ep,_fd) -> do
       endpointURI ep >>= putStrLn
-      void$ loopWhileM id$ readCommand >>= \cm -> do
+      endpointURI ep >>= hPutStrLn stderr
+      processCommands rcm rcrs ep
+
+  where
+
+    processCommands rcm rcrs ep = 
+         readCommand >>= \cm -> do
+
+         hPutStrLn stderr$ "command: "++show cm
          case cm of
 
            ConnectTo uri _ i mt -> do
-               sendResponse (Error$ "connect: "++uri++" "++show i++" "++show mt)
                connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_UU i mt
-               sendResponse (Error$ "hhhh")
-               return True
+               sendResponse Idle >> processCommands rcm rcrs ep
 
-           Accept i -> markAccept i rcrs >> return True
+           Accept i -> markAccept i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
 
-           Reject i -> markReject i rcrs >> return True
+           Reject i -> markReject i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
 
-           Disconnect i -> getConn i rcm >>= disconnect >> return True
+           Disconnect i -> do
+               c <- getConn i rcm
+               disconnect c >> sendResponse Idle >> processCommands rcm rcrs ep
 
-           Send i ctx bs -> 
-               getConn i rcm >>= \c -> send c bs ctx [] >> return True
+           Send i ctx bs -> do
+               c <- getConn i rcm
+               send c bs ctx []
+               sendResponse Idle >> processCommands rcm rcrs ep
 
-           WaitEvent -> events rcm rcrs ep >> return True
+           WaitEvent -> waitEvent rcm rcrs ep >> sendResponse Idle >> processCommands rcm rcrs ep
 
-           Quit -> return False
+           Quit -> sendResponse Idle
 
-  where
-    events rcm rcrs ep = do
-        void$ pollWithEventData ep$ \ev -> do
+    events rcm rcrs ep = 
+        void$ tryWithEventData ep (return ()) (handleEvent rcm rcrs) >> processCommands rcm rcrs ep
+
+    waitEvent rcm rcrs ep = pollWithEventData ep$ handleEvent rcm rcrs
+
+    waitConnection cid rcm rcrs ep =
+        fmap fromJust$ loopWhileM isNothing$ pollWithEventData ep$ \ev ->
+            case ev of
+              EvAccept ctx (Right conn) | ctx==cid ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx) >> return (Just conn)
+
+              EvConnect ctx (Right conn) | ctx==cid -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx) >> return (Just conn)
+
+              _ -> handleEvent rcm rcrs ev >> return Nothing
+
+    handleEvent rcm rcrs ev = do
+            hPutStrLn stderr$ "event: "++show ev
             case ev of
               EvAccept ctx (Right conn) ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
 
               EvConnect ctx (Right conn) -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
                
+              EvConnect ctx (Left ETIMEDOUT) -> sendResponse (TimedOut ctx)
+
+              EvConnect ctx (Left ECONNREFUSED) -> sendResponse (Rejected ctx)
+
               EvSend ctx st conn -> getConnId conn rcm >>= \c -> sendResponse (SendCompletion c ctx st) 
 
               EvRecv bs conn -> do 
@@ -93,16 +122,13 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
 
               EvConnectRequest e bs cattrs -> do
                       bs' <- unsafePackEventBytes bs
-                      handleConnectionRequest rcm rcrs e bs' cattrs
-
-              EvConnect ctx (Left ETIMEDOUT) -> sendResponse (TimedOut ctx)
-
-              EvConnect ctx (Left ECONNREFUSED) -> sendResponse (Rejected ctx)
+                      handleConnectionRequest rcrs e bs' cattrs
 
               EvKeepAliveTimedOut conn -> getConnId conn rcm >>= \c -> sendResponse (KeepAliveTimedOut c)
 
               EvEndpointDeviceFailed _ -> sendResponse EndpointDeviceFailed
 
+              _ -> sendResponse$ Error$ "unhandled event: " ++ show ev
 
 -- | @loopWhileM p io@ performs @io@ repeteadly while its result satisfies @p@.
 -- Yields the first offending result.
@@ -132,16 +158,16 @@ markReject :: WordPtr -> ConnReqs -> IO ()
 markReject i rcrs = atomicModifyIORef rcrs$ 
      \cr -> (cr { connReject = S.insert i (connReject cr) } , ())
 
-handleConnectionRequest :: ConnMap -> ConnReqs -> Event s -> ByteString -> ConnectionAttributes -> IO ()
-handleConnectionRequest rcrm rcrs ev bs _cattrs = do
+handleConnectionRequest :: ConnReqs -> Event s -> ByteString -> ConnectionAttributes -> IO ()
+handleConnectionRequest rcrs ev bs _cattrs = do
     r <- atomicModifyIORef rcrs$ \cr ->
         if S.member w (connAccept cr) then (cr { connAccept = S.delete w (connAccept cr) } , ReqAccepted w)
           else if S.member w (connReject cr) then (cr { connReject = S.delete w (connReject cr) } , ReqRejected w)
             else (cr,ReqIgnored w)
     case r of
-      ReqAccepted w -> accept ev w >> sendResponse r
+      ReqAccepted _ -> accept ev w >> sendResponse r
       ReqRejected _ -> reject ev >> sendResponse r
-      _ -> sendResponse r
+      _ ->  sendResponse r
   where
     w = (fromIntegral :: Word64 -> WordPtr)$ decode$ fromChunks [bs]
 
@@ -154,13 +180,10 @@ emptyConnMap :: IO ConnMap
 emptyConnMap = newIORef (M.empty,M.empty)
 
 getConn :: WordPtr -> ConnMap -> IO Connection
-getConn w rcm = 
-    readIORef rcm >>=
-        maybe (sendResponse (Error$ "connection "++show w++" was not found in the connection map.") 
-                >> ioError (userError "Cannot find word.")
-              )
-              return
-        . M.lookup w . fst
+getConn w rcm = readIORef rcm >>= maybe (do
+                                     sendResponse (Error$ "unknown connection: "++show w)
+                                     ioError$ userError$ "unknown connection: "++show w
+                                   ) return . M.lookup w . fst
 
 
 getConnId :: Connection -> ConnMap -> IO WordPtr

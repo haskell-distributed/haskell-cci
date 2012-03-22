@@ -6,45 +6,33 @@
 
 {-# LANGUAGE PatternGuards #-}
 
+import Control.Exception   ( catch, finally, IOException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
 import Data.List       ( sort )
 import Debug.Trace     ( trace )
 import Foreign.Ptr     ( WordPtr )
+import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
 import System.Exit     ( exitFailure,exitWith,ExitCode(..))
-import System.IO       ( Handle, hGetLine, hPrint, hFlush, hReady, hIsClosed, hIsOpen )
-import System.Process  ( rawSystem,runInteractiveProcess,terminateProcess,readProcess, ProcessHandle)
+import System.IO       ( Handle, hGetLine, hPrint, hFlush, hReady, hIsClosed, hIsOpen, hWaitForInput )
+import System.Process  ( rawSystem,runInteractiveProcess,terminateProcess,readProcess, ProcessHandle, runInteractiveCommand)
 import System.Random   ( RandomGen(..), Random(..), StdGen, mkStdGen )
 
 import Commands        ( Command(..), Response(..)  )
 
 testFolder :: FilePath
-testFolder = "dist" </> "build" </> "test-cci"
-
-testSrcFolder :: FilePath
-testSrcFolder = "test"
+testFolder = "dist" </> "build" </> "test-Worker"
 
 workerPath :: FilePath
-workerPath = testFolder </> "Worker"
+workerPath = testFolder </> "test-Worker"
 
 nProc :: Int
 nProc = 2
 
 main :: IO ()
-main = do
-    putStrLn "compiling worker program ..."
-    check$ rawSystem "ghc" [ "--make","-idist"</>"build","-i.","-i"++testSrcFolder
-                           , "-outputdir",testFolder,"-o",testFolder</>"Worker",testSrcFolder</>"Worker.hs"
-                           , "dist" </> "build" </> "HScci-0.1.0.o"
-                           , "-lrdmacm", "-lltdl"
-                           ]
-    testProp$ \t rs -> trace (show t ++ show rs) True
-
-  where
-    check io = io >>= \c -> case c of { ExitSuccess -> return (); _ -> exitWith c }
-
+main = testProp$ \t rs -> trace (show t ++ show rs) True
 
 -- | Tests a property with a custom generated trace of commands.
 -- The property takes the issued commands, the responses that each process provided
@@ -54,17 +42,22 @@ testProp f = do
    tr <- genTrace nProc
    print tr
    let tr' = map snd tr
-   (_,rss) <- runProcessM nProc$ runProcs tr'
-   when (not (f tr' rss)) exitFailure 
+   (do (_,rss) <- runProcessM nProc$ runProcs tr' 
+       when (not (f tr' rss)) exitFailure 
+    ) `catch` \e -> do putStrLn "Trace failed to execute: "
+                       print tr'
+                       putStrLn ("with exception: "++ show (e :: IOException))
+                       exitFailure
 
-
+runTrace :: [(Int,Command)] -> IO [[Response]]
+runTrace t = fmap snd$ runProcessM (1 + maximum (map fst t))$ runProcs t
 
 -- Trace generation
 
 -- | Takes the amount of processes, and generates commands for an interaction among them.
 genTrace :: Int -> IO Interaction
 genTrace n = return$ runCommandGenDefault 0$ 
-               mapM (uncurry genInteraction) (zip (n-1:[0..]) [0..n-1])
+               mapM (uncurry genInteraction) [(1,0)]  -- (zip (n-1:[0..]) [0..n-1])
                  >>= foldM mergeI []
 
 -- | An interaction is a list of commands for a given process.
@@ -164,23 +157,24 @@ genInteraction p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid 0 numSends
-    fmap (((i,(p1,Accept cid)):) . ((i,(p1,WaitEvent)):))$
-      mergeI (zip (repeat i) (zip (repeat p0)$ ConnectTo "" p1 cid mt : WaitEvent : sends))
-             (zip (repeat i)$ zip (repeat p1)$ replicate numSends WaitEvent)
+    sends <- genSends cid p0 p1 0 0 numSends
+    return$ (i,(p1,Accept cid)):
+       (zip (repeat i) ( (p0,ConnectTo "" p1 cid mt) : (p1,WaitEvent) : (p1,WaitEvent) : (p0,WaitEvent) : sends))
   where
     getRandomTimeout = do
         b <- getRandom
         if b then return Nothing
           else fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> CommandGen [Command]
-    genSends cid w 0 = return$ replicate w WaitEvent ++[ Disconnect cid ]
-    genSends cid w i = do
-        insertWaits <- getRandom 
-        let (waits,w') = if insertWaits then (replicate w WaitEvent,0) else ([],w)
-        rest <- genSends cid (w'+1) (i-1)
-        return$ waits ++ Send 0 (fromIntegral i) (B.pack$ show i) : rest
+    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [(Int,Command)]
+    genSends cid p0 p1 w0 w1 0 = return$ replicate w0 (p0,WaitEvent) ++ replicate w1 (p1,WaitEvent) ++[ (p0,Disconnect cid) ]
+    genSends cid p0 p1 w0 w1 i = do
+        insertWaits0 <- getRandom 
+        insertWaits1 <- getRandom 
+        let (waits0,w0') = if insertWaits0 then (replicate w0 (p0,WaitEvent),0) else ([],w0)
+            (waits1,w1') = if insertWaits1 then (replicate w1 (p1,WaitEvent),0) else ([],w1)
+        rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (i-1)
+        return$ waits0 ++ waits1 ++ (p0,Send 0 (fromIntegral i) (B.pack$ show i)) : rest
 
 
 
@@ -190,18 +184,30 @@ type ProcessM a = StateT ([Process],[[Response]]) IO a
 
 runProcessM :: Int -> ProcessM a -> IO (a,[[Response]])
 runProcessM n m = do
-    ps <- replicateM n launchWorker 
-    fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps)
+    ps <- mapM launchWorker [0..n-1]
+    (fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps))
+      `finally` forM_ ps (\p -> terminateProcess (ph p))
 
 runProcs :: [(Int,Command)] -> ProcessM ()
 runProcs tr = do
    forM_ tr$ \(i,c) -> sendCommand c i
-   fmap fst get >>= \ps -> forM_ (zip [0..] ps)$ \(i,p) -> 
-      void$ loopWhileM (/=Bye)$ do
-          isClosed <- lift$ hIsClosed (h_out p)
-          if isClosed then return Bye
-            else readResponse p i
+   fmap fst get >>= \ps -> forM_ [0..length ps-1]$ sendCommand Quit
 
+{-
+runProcs :: [(Int,Command)] -> ProcessM ()
+runProcs tr = do
+   forM_ tr$ \(i,c) -> sendCommand c i
+   fmap fst get >>= \ps -> do
+      forM_ [0..length ps-1]$ sendCommand Quit
+      readResps (zip [0..] ps)
+  where
+    readResps [] = return ()
+    readResps ips = do
+      forM_ ips$ \(i,p) -> readResponses p i
+      ips' <- lift$ filterM (hIsOpen . h_out . snd) ips
+      readResps ips'
+
+ - -}
 
 -- | Process communication
 
@@ -213,9 +219,10 @@ data Process = Process
     , uri :: String
     }
 
-launchWorker :: IO Process
-launchWorker = do
-    (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+launchWorker :: Int -> IO Process
+launchWorker pid = do
+    -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+    (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"
     puri <- hGetLine hout
     return Process 
         { h_in = hin
@@ -232,28 +239,20 @@ sendCommand c i = do
             ConnectTo _ pid cid mt -> 
                getProc pid >>= \pd -> return$ ConnectTo (uri pd) pid cid mt
             _ -> return c
-    lift$ putStrLn$ "sending "++show c' 
     lift$ hPrint (h_in p) c'
     lift$ hFlush (h_in p)
-    lift$ putStrLn$ "sent" 
     readResponses p i
 
 
 readResponses :: Process -> Int -> ProcessM ()
-readResponses p i = do
-    isOpen <- lift$ hIsOpen (h_out p)
-    lift$ putStrLn$ "isOpen "++show isOpen
-    when isOpen$ do
-        inputReady <- lift$ hReady (h_out p)
-        when inputReady$ void$ loopWhileM (/=Idle)$  readResponse p i
-
+readResponses p i = void$ loopWhileM (/=Idle)$ readResponse p i
 
 readResponse :: Process -> Int -> ProcessM Response
 readResponse p i = do
-        lift$ putStrLn "hola5"
+        someInput <- lift$ hWaitForInput (h_out p) 2000
+        lift$ when (not someInput)$ ioError$ userError$ "process "++show i++" blocked" 
         r <- lift$ fmap read $ hGetLine (h_out p)
         unless (r==Idle)$ addResponse r i
-        lift$ putStrLn$ "hola6 " ++ show r
         return r
 
 
