@@ -10,8 +10,7 @@ import Control.Exception   ( catch, finally, IOException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
-import Data.List       ( sort )
-import Debug.Trace     ( trace )
+import Data.List       ( sort, nub )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
@@ -28,36 +27,85 @@ testFolder = "dist" </> "build" </> "test-Worker"
 workerPath :: FilePath
 workerPath = testFolder </> "test-Worker"
 
-nProc :: Int
-nProc = 2
+
+-- | Parameters for running tests
+data TestConfig = TestConfig 
+    { nProcesses :: Int -- ^ Number of processes in tests
+    , nSends     :: Int -- ^ Number of sends in each interaction
+    , nTries     :: Int -- ^ Number of tests to run 
+    , nErrors    :: Int -- ^ Number of errors to collect before stopping
+    }
+
+defaultTestConfig :: TestConfig
+defaultTestConfig = TestConfig
+    { nProcesses = 2
+    , nSends     = 1
+    , nTries     = 5
+    , nErrors    = 2
+    }
 
 main :: IO ()
-main = testProp$ \t rs -> trace (show t ++ show rs) True
+main = do
+    errs <- testProp defaultTestConfig "sample prop" (\t rs -> True)
+    mapM_ print errs
+    when (not (null errs)) exitFailure
 
--- | Tests a property with a custom generated trace of commands.
+type TestError = ([(Int,Command)],[[Response]],String)
+
+-- | Tests a property with a custom generated commands.
 -- The property takes the issued commands, the responses that each process provided
 -- and must answer if they are correct.
-testProp :: ([(Int,Command)] -> [[Response]] -> Bool) -> IO ()
-testProp f = do
-   tr <- genTrace nProc
-   print tr
-   let tr' = map snd tr
-   (do (_,rss) <- runProcessM nProc$ runProcs tr' 
-       when (not (f tr' rss)) exitFailure 
-    ) `catch` \e -> do putStrLn "Trace failed to execute: "
-                       print tr'
-                       putStrLn ("with exception: "++ show (e :: IOException))
-                       exitFailure
+--
+-- Several command sequences are generated. Sequences that make the property fail are
+-- yielded as part of the result.
+testProp :: TestConfig -> String -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO [TestError]
+testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
+  where
+    go g errors _ 0 = return errors
+    go g errors 0 _ = return errors
+    go g errors errCount tryCount = do
+      (tr,g') <- genTrace c g
+      let tr' = map snd tr
+      me <- testTrace propName tr' (nProcesses c) f
+      case me of
+        Just err -> do err' <- shrink propName tr err (nProcesses c) f
+                       go g' (err':errors) (errCount-1) (tryCount-1)
+        Nothing  -> go g' errors errCount (tryCount-1)
+
+testTrace :: String -> [(Int,Command)] -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO (Maybe TestError)
+testTrace propName t nProc f = do
+      r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
+                ) `catch` \e -> return$ Left (t,[],show (e :: IOException))
+      case r of
+        Left err -> return$ Just err
+        Right rss -> if f t rss then return Nothing 
+                       else return$ Just (t,rss,"failed prop: "++propName)
+
+
+shrinkTrace :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
+shrinkTrace tr = [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+
+shrink :: String -> [(Int,(Int,Command))] -> TestError -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO TestError
+shrink propName tr err nProc f = go (shrinkTrace tr)
+  where
+    go []       = return err 
+    go (tr':trs) = do
+        me <- testTrace propName (map snd tr') nProc f 
+        case me of
+          Just err' -> shrink propName tr' err' nProc f
+          Nothing   -> go trs
+
 
 runTrace :: [(Int,Command)] -> IO [[Response]]
 runTrace t = fmap snd$ runProcessM (1 + maximum (map fst t))$ runProcs t
 
+
 -- Trace generation
 
 -- | Takes the amount of processes, and generates commands for an interaction among them.
-genTrace :: Int -> IO Interaction
-genTrace n = return$ runCommandGenDefault 0$ 
-               mapM (uncurry genInteraction) [(1,0)]  -- (zip (n-1:[0..]) [0..n-1])
+genTrace :: TestConfig -> StdGen -> IO (Interaction,StdGen)
+genTrace c g = return$ runCommandGenDefault g$ 
+               mapM (uncurry (genInteraction c)) (zip (nProcesses c-1:[0..]) [0..nProcesses c-1])
                  >>= foldM mergeI []
 
 -- | An interaction is a list of commands for a given process.
@@ -76,13 +124,13 @@ type Interaction = [(Int,(Int,Command))]
 runCommandGen :: CommandGenState -> CommandGen a -> (a,CommandGenState)
 runCommandGen = flip runState 
 
-runCommandGenDefault :: Int -> CommandGen a -> a
-runCommandGenDefault i = fst .
+runCommandGenDefault :: StdGen -> CommandGen a -> (a,StdGen)
+runCommandGenDefault g = (\(a,s)->(a,rG s)) .
     runCommandGen CommandGenState 
         { connG = 0
         , sendG = 0
         , interactionG = 0
-        , rG = mkStdGen i
+        , rG = g
         }
 
 
@@ -118,11 +166,6 @@ mergeI' i0 l0 i1 l1 = do
         | (i':is') <- is, (ir0:irs0) <- i0 = ir0 : insertI (p+1) i' is' irs0 i1
         | otherwise                        = i0 ++ i1
 
-{-
-mergeI xss@(x:xs) yss@(y:ys) = getRandom >>= \b -> 
-    if b then liftM (x:)$ mergeI xs yss
-      else liftM (y:)$ mergeI xss ys
--}
 
 
 -- | There are quite a few identifiers which are used to organize the data.
@@ -151,13 +194,12 @@ generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 --
 -- Right now the interactions consist on stablishing an initial connection and 
 -- then having the first process send messages to second one.
-genInteraction :: Int -> Int -> CommandGen Interaction 
-genInteraction p0 p1 = do
-    let numSends = 1
+genInteraction :: TestConfig -> Int -> Int -> CommandGen Interaction 
+genInteraction c p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid p0 p1 0 0 numSends
+    sends <- genSends cid p0 p1 0 0 (nSends c)
     return$ (i,(p1,Accept cid)):
        (zip (repeat i) ( (p0,ConnectTo "" p1 cid mt) : (p1,WaitEvent) : (p1,WaitEvent) : (p0,WaitEvent) : sends))
   where
@@ -193,21 +235,6 @@ runProcs tr = do
    forM_ tr$ \(i,c) -> sendCommand c i
    fmap fst get >>= \ps -> forM_ [0..length ps-1]$ sendCommand Quit
 
-{-
-runProcs :: [(Int,Command)] -> ProcessM ()
-runProcs tr = do
-   forM_ tr$ \(i,c) -> sendCommand c i
-   fmap fst get >>= \ps -> do
-      forM_ [0..length ps-1]$ sendCommand Quit
-      readResps (zip [0..] ps)
-  where
-    readResps [] = return ()
-    readResps ips = do
-      forM_ ips$ \(i,p) -> readResponses p i
-      ips' <- lift$ filterM (hIsOpen . h_out . snd) ips
-      readResps ips'
-
- - -}
 
 -- | Process communication
 
