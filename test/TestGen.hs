@@ -5,6 +5,10 @@
 --
 
 {-# LANGUAGE PatternGuards #-}
+module TestGen
+    ( testProp, TestConfig(..), defaultTestConfig, runTrace, Response(..)
+    , Command(..), TestError
+    ) where
 
 import Control.Exception   ( catch, finally, IOException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM )
@@ -14,10 +18,9 @@ import Data.List       ( sort, nub )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
-import System.Exit     ( exitFailure,exitWith,ExitCode(..))
-import System.IO       ( Handle, hGetLine, hPrint, hFlush, hReady, hIsClosed, hIsOpen, hWaitForInput )
-import System.Process  ( rawSystem,runInteractiveProcess,terminateProcess,readProcess, ProcessHandle, runInteractiveCommand)
-import System.Random   ( RandomGen(..), Random(..), StdGen, mkStdGen )
+import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput )
+import System.Process  ( terminateProcess, ProcessHandle, runInteractiveCommand)
+import System.Random   ( Random(..), StdGen, mkStdGen )
 
 import Commands        ( Command(..), Response(..)  )
 
@@ -44,12 +47,6 @@ defaultTestConfig = TestConfig
     , nErrors    = 2
     }
 
-main :: IO ()
-main = do
-    errs <- testProp defaultTestConfig "sample prop" (\t rs -> True)
-    mapM_ print errs
-    when (not (null errs)) exitFailure
-
 type TestError = ([(Int,Command)],[[Response]],String)
 
 -- | Tests a property with a custom generated commands.
@@ -61,8 +58,8 @@ type TestError = ([(Int,Command)],[[Response]],String)
 testProp :: TestConfig -> String -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO [TestError]
 testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
   where
-    go g errors _ 0 = return errors
-    go g errors 0 _ = return errors
+    go _g errors _ 0 = return errors
+    go _g errors 0 _ = return errors
     go g errors errCount tryCount = do
       (tr,g') <- genTrace c g
       let tr' = map snd tr
@@ -83,7 +80,7 @@ testTrace propName t nProc f = do
 
 
 shrinkTrace :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
-shrinkTrace tr = [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+shrinkTrace tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
 
 shrink :: String -> [(Int,(Int,Command))] -> TestError -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO TestError
 shrink propName tr err nProc f = go (shrinkTrace tr)

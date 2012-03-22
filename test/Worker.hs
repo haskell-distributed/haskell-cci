@@ -12,11 +12,13 @@
 -- communicate among themselves through CCI. 
 --
 -- The driver process must issue commands to indicate to the workers which connection requests 
--- to accept and reject before the connection requests events arrive.
+-- to accept and reject before the connection requests events arrive. For every command, the
+-- worker process sends and Idle response to the driver, so the driver can synchronize all the
+-- workers and make bugs reproducible.
 -- 
 -- Worker processes are spawned by the driver process.
 --
--- See test/Driver.hs
+-- See test/Tests.hs for an example of driver process.
 
 import Prelude hiding          ( catch )
 import Control.Exception       ( catch, finally, SomeException )
@@ -42,14 +44,14 @@ import Commands                ( initCommands,readCommand
                                , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
-                                         , EndpointDeviceFailed, Bye, Idle
+                                         , EndpointDeviceFailed, Idle
                                          )
                                , sendResponse
                                )
 
 
 main :: IO ()
-main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
+main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
     initCommands
     initCCI
     rcm <- emptyConnMap
@@ -88,19 +90,7 @@ main = flip finally (sendResponse Bye)$ flip catch (\e -> sendResponse$ Error$ "
 
            Quit -> sendResponse Idle
 
-    events rcm rcrs ep = 
-        void$ tryWithEventData ep (return ()) (handleEvent rcm rcrs) >> processCommands rcm rcrs ep
-
     waitEvent rcm rcrs ep = pollWithEventData ep$ handleEvent rcm rcrs
-
-    waitConnection cid rcm rcrs ep =
-        fmap fromJust$ loopWhileM isNothing$ pollWithEventData ep$ \ev ->
-            case ev of
-              EvAccept ctx (Right conn) | ctx==cid ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx) >> return (Just conn)
-
-              EvConnect ctx (Right conn) | ctx==cid -> insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx) >> return (Just conn)
-
-              _ -> handleEvent rcm rcrs ev >> return Nothing
 
     handleEvent rcm rcrs ev = do
             hPutStrLn stderr$ "event: "++show ev
