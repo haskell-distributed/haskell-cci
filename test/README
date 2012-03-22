@@ -61,6 +61,6 @@ processing a command so the driver can deliver some other command to some
 potentially different worker. This strong synchronization between workers
 and driver should help making the bugs reproducible.
 
-
+Definitions of commands and responses can be found in test/Commands.hs.
 
 
