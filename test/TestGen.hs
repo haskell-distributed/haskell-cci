@@ -7,7 +7,7 @@
 {-# LANGUAGE PatternGuards #-}
 module TestGen
     ( testProp, TestConfig(..), defaultTestConfig, runCommands, Response(..)
-    , Command(..), TestError
+    , Command(..), TestError, testCommands
     ) where
 
 import Control.Exception   ( catch, finally, IOException )
@@ -72,6 +72,7 @@ testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
                        go g' (err':errors) (errCount-1) (tryCount-1)
         Nothing  -> go g' errors errCount (tryCount-1)
 
+-- | Runs a sequence of commands and verifies that the given predicate holds on the results.
 testCommands :: String -> [(Int,Command)] -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO (Maybe TestError)
 testCommands propName t nProc f = do
       r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
@@ -82,9 +83,12 @@ testCommands propName t nProc f = do
                        else return$ Just (t,rss,"failed prop: "++propName)
 
 
+-- | Provides the possible ways to reduce a command sequence.
 shrinkCommands :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
 shrinkCommands tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
 
+-- | Shrinks a command sequence as much as possible while preserving a faulty behavior
+-- with respect to the provided predicate.
 shrink :: String -> [(Int,(Int,Command))] -> TestError -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO TestError
 shrink propName tr err nProc f = go (shrinkCommands tr)
   where
@@ -117,7 +121,7 @@ genCommands c g = return$ runCommandGenDefault g$
 --
 -- The purpose of the interaction identifier is to allow to shrink
 -- a failing test case by removing the interactions that do not affect 
--- the bug reproduction.
+-- the bug reproduction (see function 'shrink').
 type Interaction = [(Int,(Int,Command))]
 
 
