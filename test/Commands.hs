@@ -16,12 +16,13 @@ import Network.CCI           ( Status(..) )
 
 data Command =
       ConnectTo String Int WordPtr (Maybe Word64) -- ^ @ConnectTo uri process_id connection_id timeout@ process id is 
-	                                              -- only used on the test driver side
+                                                  -- only used on the test driver side
     | Send WordPtr WordPtr ByteString             -- ^ @Send connection_id send_id "send_id"@ message 
     | Accept WordPtr                              -- ^ @Accept connection_id@
     | Reject WordPtr                              -- ^ @Reject connection_id@
     | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
-	| WaitEvent                                   
+    | WaitEventAsync                                   
+    | WaitEvent                                   
     | Quit
   deriving (Show, Read, Eq)
 
@@ -34,7 +35,7 @@ data Response =
     | ReqRejected WordPtr                         -- ^ Holds the connection identifier. 
     | ReqIgnored WordPtr                          -- ^ Holds the connection identifier.
     | Rejected WordPtr                            -- ^ Holds the connection identifier. This response is given when the remote
-	                                              -- side rejects a connection request.
+                                                  -- side rejects a connection request.
     | TimedOut WordPtr                            -- ^ Holds the connection identifier of the connect request that timed out.
     | KeepAliveTimedOut WordPtr                   -- ^ Hodls the connection identifier.
     | EndpointDeviceFailed

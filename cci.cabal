@@ -103,7 +103,7 @@ Executable ex-client
 
 Executable ex-pingpong
   main-is:        examples/pingpong.hs
-  ghc-options:    -O -Wall -idist/build
+  ghc-options:    -O -Wall -idist/build -threaded
   if flag(examples)
     build-depends:  base, bytestring, cci, time
   else
@@ -119,9 +119,18 @@ Executable ex-server
 
 Test-Suite test-cci
   type:           exitcode-stdio-1.0
-  main-is:        Driver.hs
+  main-is:        Props.hs
   hs-source-dirs: test
   build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
+
+Executable test-Worker
+  main-is:        Worker.hs
+  ghc-options:    -O -Wall -idist/build -threaded
+  hs-source-dirs: test
+  if flag(examples)
+    build-depends:  base, bytestring, cci, time, containers, binary
+  else
+    buildable: False
 
 
