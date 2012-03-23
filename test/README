@@ -9,6 +9,11 @@ There are worker processes which test the CCI features, and there is a driver pr
 which tell the workers what they must do. The driver communicates with the workers
 through the standard input and output.
 
+Workers store the standard error output in files worker-stderr<N>.txt, where
+N identifies the process internally to the test generator. Subsequent test
+runs overwrite this files though. They are useful to debug the run of a single
+command sequence with TestGen.runCommands.
+
 A test is written as in test/Props.hs:
 
 1. main = do

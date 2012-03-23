@@ -18,8 +18,10 @@ import Data.List       ( sort, nub )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
-import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput )
-import System.Process  ( terminateProcess, ProcessHandle, runInteractiveProcess )
+import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..) )
+import System.Process  ( terminateProcess, ProcessHandle
+                       , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
+                       )
 import System.Random   ( Random(..), StdGen, mkStdGen )
 
 
@@ -244,8 +246,19 @@ data Process = Process
     }
 
 launchWorker :: Int -> IO Process
-launchWorker _pid = do
-    (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+launchWorker pid = do
+    -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+    herr <- openBinaryFile ("worker-stderr"++show pid++".txt") WriteMode
+    (Just hin,Just hout,_herr,phandle) <- createProcess CreateProcess 
+                                  { cmdspec = RawCommand workerPath []
+                                  , cwd = Nothing
+                                  , env = Just [("CCI_CONFIG","cci.ini")]
+                                  , std_in = CreatePipe
+                                  , std_out = CreatePipe
+                                  , std_err = UseHandle herr
+                                  , close_fds = False
+                                  }
+
     -- (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"
     -- void$ forkIO$ hGetContents herr >>= writeFile ("worker-stderr"++show pid++".txt") >> putStrLn ("wrote "++show pid)
     puri <- hGetLine hout
@@ -276,6 +289,7 @@ readResponse p i = do
         someInput <- lift$ hWaitForInput (h_out p) 2000
         lift$ when (not someInput)$ ioError$ userError$ "process "++show i++" blocked" 
         r <- lift$ fmap read $ hGetLine (h_out p)
+        -- lift$ putStrLn$ "resp: "++show r
         unless (r==Idle)$ addResponse r i
         return r
 
