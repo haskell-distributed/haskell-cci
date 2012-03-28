@@ -50,7 +50,7 @@ defaultTestConfig = TestConfig
     , nErrors    = 2
     }
 
-type TestError = ([(Int,Command)],[[Response]],String)
+type TestError = ([ProcCommand],[[Response]],String)
 
 -- | Tests a property with a custom generated commands.
 -- The property takes the issued commands, the responses that each process provided
@@ -58,7 +58,7 @@ type TestError = ([(Int,Command)],[[Response]],String)
 --
 -- Several command sequences are generated. Sequences that make the property fail are
 -- yielded as part of the result.
-testProp :: TestConfig -> String -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO [TestError]
+testProp :: TestConfig -> String -> ([ProcCommand] -> [[Response]] -> Bool) -> IO [TestError]
 testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
   where
     go _g errors _ 0 = return errors
@@ -73,7 +73,7 @@ testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
         Nothing  -> go g' errors errCount (tryCount-1)
 
 -- | Runs a sequence of commands and verifies that the given predicate holds on the results.
-testCommands :: String -> [(Int,Command)] -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO (Maybe TestError)
+testCommands :: String -> [ProcCommand] -> Int -> ([ProcCommand] -> [[Response]] -> Bool) -> IO (Maybe TestError)
 testCommands propName t nProc f = do
       r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
                 ) `catch` \e -> return$ Left (t,[],show (e :: IOException))
@@ -84,12 +84,12 @@ testCommands propName t nProc f = do
 
 
 -- | Provides the possible ways to reduce a command sequence.
-shrinkCommands :: [(Int,(Int,Command))] -> [[(Int,(Int,Command))]]
+shrinkCommands :: Interaction -> [Interaction]
 shrinkCommands tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
 
 -- | Shrinks a command sequence as much as possible while preserving a faulty behavior
 -- with respect to the provided predicate.
-shrink :: String -> [(Int,(Int,Command))] -> TestError -> Int -> ([(Int,Command)] -> [[Response]] -> Bool) -> IO TestError
+shrink :: String -> Interaction -> TestError -> Int -> ([ProcCommand] -> [[Response]] -> Bool) -> IO TestError
 shrink propName tr err nProc f = go (shrinkCommands tr)
   where
     go []       = return err 
@@ -100,9 +100,24 @@ shrink propName tr err nProc f = go (shrinkCommands tr)
           Nothing   -> go trs
 
 
-runCommands :: [(Int,Command)] -> IO [[Response]]
-runCommands t = fmap snd$ runProcessM (1 + maximum (map fst t))$ runProcs t
+runCommands :: [ProcCommand] -> IO [[Response]]
+runCommands t = fmap snd$ runProcessM (1 + maximum (concatMap fst t))$ runProcs t
 
+{-
+generateCCommands :: [(Int,Command)] -> String
+generateCCommands = unlines
+                  . map (wrapProc . unlines . map (genC . snd)) 
+                  . groupBy (compare `on` fst) . sortBy (compare `on` fst) 
+                  . genTurns
+  where
+    genTurns [] = []
+    genTurns ((pid,c):cmds) = (pid,(0,c)) : go pid 0 cmds
+      where
+        go _ [] = []
+        go lpid ((pid,c):cmds) = (pid,(lpid/=pid,c)) : genTurns pid cmds
+
+    genC ()
+-}
 
 -- Command generation
 
@@ -117,12 +132,14 @@ genCommands c g = return$ runCommandGenDefault g$
 -- interactions, each command is attached with an identifier of the
 -- simplest interaction that contained it. 
 --
--- @[(interaction_id,(destinatary_process_id,command))]@
+-- @[(interaction_id,(destinatary_process_ids,command))]@
 --
 -- The purpose of the interaction identifier is to allow to shrink
 -- a failing test case by removing the interactions that do not affect 
 -- the bug reproduction (see function 'shrink').
-type Interaction = [(Int,(Int,Command))]
+type Interaction = [(Int,ProcCommand)]
+
+type ProcCommand = ([Int],Command)
 
 
 runCommandGen :: CommandGenState -> CommandGen a -> (a,CommandGenState)
@@ -204,23 +221,24 @@ genInteraction c p0 p1 = do
     mt <- getRandomTimeout
     cid <- generateConnectionId
     sends <- genSends cid p0 p1 0 0 (nSends c)
-    return$ (i,(p1,Accept cid)):
-       (zip (repeat i) ( (p0,ConnectTo "" p1 cid mt) : (p0,WaitEventAsync) : (p1,WaitEvent) : (p1,WaitEvent) : sends))
+    return$ (i,([p1],Accept cid)):
+       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : ([p1],ProcessEvent) : sends
+                         )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
   where
     getRandomTimeout = do
         b <- getRandom
         if b then return Nothing
           else fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [(Int,Command)]
-    genSends cid p0 p1 w0 w1 0 = return$ replicate w0 (p0,WaitEvent) ++ replicate w1 (p1,WaitEvent) ++[ (p0,Disconnect cid) ]
+    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genSends cid p0 p1 w0 w1 0 = return$ replicate w0 ([p0],ProcessEvent) ++ replicate w1 ([p1],ProcessEvent) ++[ ([p0],Disconnect cid) ]
     genSends cid p0 p1 w0 w1 i = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
-        let (waits0,w0') = if insertWaits0 then (replicate w0 (p0,WaitEvent),0) else ([],w0)
-            (waits1,w1') = if insertWaits1 then (replicate w1 (p1,WaitEvent),0) else ([],w1)
+        let (waits0,w0') = if insertWaits0 then (replicate w0 ([p0],ProcessEvent),0) else ([],w0)
+            (waits1,w1') = if insertWaits1 then (replicate w1 ([p1],ProcessEvent),0) else ([],w1)
         rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (i-1)
-        return$ waits0 ++ waits1 ++ (p0,Send cid (fromIntegral i) (B.pack$ show i)) : rest
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral i) (B.pack$ show i)) : rest
 
 
 
@@ -234,9 +252,9 @@ runProcessM n m = do
     (fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps))
       `finally` forM_ ps (\p -> terminateProcess (ph p))
 
-runProcs :: [(Int,Command)] -> ProcessM ()
+runProcs :: [ProcCommand] -> ProcessM ()
 runProcs tr = do
-   forM_ tr$ \(i,c) -> sendCommand c i
+   forM_ tr$ \(pids,c) -> forM_ pids$ sendCommand c
    fmap fst get >>= \ps -> forM_ [0..length ps-1]$ sendCommand Quit
 
 

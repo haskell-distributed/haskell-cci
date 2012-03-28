@@ -35,18 +35,20 @@ import System.IO               ( hPutStrLn, stderr )
 import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
-                               , endpointURI, pollWithEventData
+                               , endpointURI, pollWithEventData, tryWithEventData
                                )
 
 import Commands                ( initCommands,readCommand
-                               , Command(ConnectTo, Send, Accept, Reject, Disconnect, Quit, WaitEvent, WaitEventAsync)
+                               , Command(..)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
                                          , EndpointDeviceFailed, Idle
                                          )
-                               , sendResponse
                                )
+import qualified Commands as C ( sendResponse )
 
+sendResponse :: Response -> IO ()
+sendResponse r = hPutStrLn stderr ("response: "++show r) >> C.sendResponse r
 
 main :: IO ()
 main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
@@ -57,43 +59,68 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
     withEndpoint Nothing$ \(ep,_fd) -> do
       endpointURI ep >>= putStrLn
       endpointURI ep >>= hPutStrLn stderr
-      processCommands rcm rcrs ep
+      processCommands rcm rcrs ep (0::Int)
 
   where
 
-    processCommands rcm rcrs ep = 
-         readCommand >>= \cm -> do
+    processCommands rcm rcrs ep ecount = 
+       readCommand >>= \cm -> do
 
-         hPutStrLn stderr$ "command: "++show cm
-         case cm of
+         hPutStrLn stderr$ " command: "++show cm
+         case seq ecount cm of
 
            ConnectTo uri _ i mt -> do
                connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_UU i mt
-               sendResponse Idle >> processCommands rcm rcrs ep
+               sendResponse Idle >> processCommands rcm rcrs ep ecount
 
-           Accept i -> markAccept i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
+           Accept i -> markAccept i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep ecount
 
-           Reject i -> markReject i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
+           Reject i -> markReject i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep ecount
 
            Disconnect i -> do
-               c <- getConn i rcm
-               disconnect c >> sendResponse Idle >> processCommands rcm rcrs ep
+               c <- getConn' i rcm
+               disconnect c >> sendResponse Idle >> processCommands rcm rcrs ep ecount
 
            Send i ctx bs -> do
-               c <- getConn i rcm
+               c <- getConn' i rcm
                send c bs ctx []
-               sendResponse Idle >> processCommands rcm rcrs ep
+               sendResponse Idle >> processCommands rcm rcrs ep ecount
 
-           WaitEvent -> waitEvent rcm rcrs ep >> sendResponse Idle >> processCommands rcm rcrs ep
+           ProcessEvent -> sendResponse Idle >> processEvent rcm rcrs ep ecount >>= processCommands rcm rcrs ep
 
-           WaitEventAsync -> sendResponse Idle >> waitEvent rcm rcrs ep >> processCommands rcm rcrs ep
+           WaitEvents i -> do
+                        sendResponse Idle
+                        if i<=ecount then processCommands rcm rcrs ep (ecount-i)
+                          else do 
+                            sequence_ (replicate (i-ecount) (waitEvent rcm rcrs ep))
+                            processCommands rcm rcrs ep 0
+
+           WaitConnection cid -> do
+                        mc <- getConn cid rcm
+                        sendResponse Idle
+                        case mc of
+                          Nothing -> waitConnection rcm rcrs ep cid ecount >>= processCommands rcm rcrs ep
+                          _       -> processCommands rcm rcrs ep ecount
 
            Quit -> sendResponse Idle
 
+    processEvent rcm rcrs ep ecount = do
+        if ecount>0 then return (ecount-1)
+          else pollWithEventData ep (handleEvent rcm rcrs) >> return ecount
+
     waitEvent rcm rcrs ep = pollWithEventData ep$ handleEvent rcm rcrs
 
+    waitConnection rcm rcrs ep cid ecount = do
+            mc <- getConn cid rcm
+            case mc of
+              Nothing -> do
+                    pollWithEventData ep$ handleEvent rcm rcrs
+                    waitConnection rcm rcrs ep cid (ecount+1)
+
+              _ -> return ecount
+
     handleEvent rcm rcrs ev = do
-            hPutStrLn stderr$ "event: "++show ev
+            hPutStrLn stderr$ "   event: "++show ev
             case ev of
               EvAccept ctx (Right conn) ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
 
@@ -169,12 +196,14 @@ type ConnMap = IORef (M.Map WordPtr Connection,M.Map Connection WordPtr)
 emptyConnMap :: IO ConnMap
 emptyConnMap = newIORef (M.empty,M.empty)
 
-getConn :: WordPtr -> ConnMap -> IO Connection
-getConn w rcm = readIORef rcm >>= maybe (do
+getConn :: WordPtr -> ConnMap -> IO (Maybe Connection)
+getConn w rcm = readIORef rcm >>= return . M.lookup w . fst
+
+getConn' :: WordPtr -> ConnMap -> IO Connection
+getConn' w rcm = getConn w rcm >>= maybe (do
                                      sendResponse (Error$ "unknown connection: "++show w)
                                      ioError$ userError$ "unknown connection: "++show w
-                                   ) return . M.lookup w . fst
-
+                                   ) return
 
 getConnId :: Connection -> ConnMap -> IO WordPtr
 getConnId c rcm = 

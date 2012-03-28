@@ -21,8 +21,9 @@ data Command =
     | Accept WordPtr                              -- ^ @Accept connection_id@
     | Reject WordPtr                              -- ^ @Reject connection_id@
     | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
-    | WaitEventAsync                                   
-    | WaitEvent                                   
+    | WaitConnection WordPtr                      -- ^ Wait for a given connection to be established.
+    | WaitEvents Int                              -- ^ Amount of events to wait for since last WaitEvents command.                                 
+    | ProcessEvent
     | Quit
   deriving (Show, Read, Eq)
 

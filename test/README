@@ -69,7 +69,7 @@ Definitions of commands and responses can be found in test/Commands.hs.
 Once you find a failing command sequence like:
 
 test :: [(Int,Command)]
-test = read$ show [(0,Accept 0),(1,ConnectTo "" 0 0 Nothing),(1,Accept 1),(0,ConnectTo "" 1 1 (Just 6033928379697495545)),(0,WaitEventAsync),(1,WaitEvent),(1,WaitEvent),(1,WaitEventAsync),(0,WaitEvent),(0,WaitEvent)]
+test = read "[(0,Accept 0),(1,ConnectTo \"\" 0 0 Nothing),(1,WaitConnection 0),(0,ProcessEvent),(0,ProcessEvent),(1,Send 0 1 \"1\"),(1,ProcessEvent),(0,ProcessEvent),(1,Disconnect 0)]"
 
 , it can be rerun with
 
