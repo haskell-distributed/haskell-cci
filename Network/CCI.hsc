@@ -1308,13 +1308,13 @@ instance Enum ConnectionOption where
 
 
 -- | Returns a human readable description of a 'Status' value.
-strError :: Status -> IO String
-strError st = do
-     cs <- cci_strerror$ fromIntegral$ fromEnum st
+strError :: Maybe Endpoint -> Status -> IO String
+strError me st = do
+     cs <- cci_strerror (maybe nullPtr (\(Endpoint ep) -> ep) me)$ fromIntegral$ fromEnum st
      if nullPtr == cs then return ""
        else peekCString cs
 
-foreign import ccall unsafe cci_strerror :: CInt -> IO CString
+foreign import ccall unsafe cci_strerror :: Ptr EndpointV -> CInt -> IO CString
 
 
 -- | Type of exceptions that can arise when calling cci functions.
