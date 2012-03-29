@@ -22,8 +22,8 @@ data Command =
     | Reject WordPtr                              -- ^ @Reject connection_id@
     | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
     | WaitConnection WordPtr                      -- ^ Wait for a given connection to be established.
-    | WaitEvents Int                              -- ^ Amount of events to wait for since last WaitEvents command.                                 
-    | ProcessEvent
+    | WaitSendCompletion WordPtr WordPtr          -- ^ @WaitSendCompletion conn_id send_id@ Wait for a send completion to arrive.
+    | WaitRecv WordPtr WordPtr                    -- ^ @WaitRecv conn_id recv_id@ for a receive event to arrive.
     | Quit
   deriving (Show, Read, Eq)
 

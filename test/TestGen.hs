@@ -7,11 +7,11 @@
 {-# LANGUAGE PatternGuards #-}
 module TestGen
     ( testProp, TestConfig(..), defaultTestConfig, runCommands, Response(..)
-    , Command(..), TestError, testCommands
+    , Command(..), TestError, testCommands, ProcCommand
     ) where
 
 import Control.Exception   ( catch, finally, IOException )
-import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM )
+import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
 import Data.List       ( sort, nub )
@@ -46,7 +46,7 @@ defaultTestConfig :: TestConfig
 defaultTestConfig = TestConfig
     { nProcesses = 2
     , nSends     = 1
-    , nTries     = 5
+    , nTries     = 100
     , nErrors    = 2
     }
 
@@ -222,23 +222,31 @@ genInteraction c p0 p1 = do
     cid <- generateConnectionId
     sends <- genSends cid p0 p1 0 0 (nSends c)
     return$ (i,([p1],Accept cid)):
-       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : ([p1],ProcessEvent) : sends
+       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : sends
                          )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
   where
     getRandomTimeout = do
         b <- getRandom
         if b then return Nothing
-          else fmap (Just . (+6*1000000))$ getRandom
+          else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends cid p0 p1 w0 w1 0 = return$ replicate w0 ([p0],ProcessEvent) ++ replicate w1 ([p1],ProcessEvent) ++[ ([p0],Disconnect cid) ]
+    genSends :: WordPtr -> Int -> Int -> WordPtr -> WordPtr -> Int -> CommandGen [ProcCommand]
+    genSends cid p0 p1 w0 w1 0 = return$ 
+               [ ([p0],WaitSendCompletion cid sid) | sid <- [w0,w0-1..1] ]
+               ++ [ ([p1],WaitRecv cid rid) | rid <- [w1,w1-1..1]  ]
+               ++ [ ([p0],Disconnect cid) ]
     genSends cid p0 p1 w0 w1 i = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
-        let (waits0,w0') = if insertWaits0 then (replicate w0 ([p0],ProcessEvent),0) else ([],w0)
-            (waits1,w1') = if insertWaits1 then (replicate w1 ([p1],ProcessEvent),0) else ([],w1)
+        let wid = fromIntegral i
+            (waits0,w0') = if insertWaits0 
+                             then ([ ([p0],WaitSendCompletion cid sid) | sid <- [w0+wid,w0+wid-1..wid+1] ] ,0) 
+                             else ([],w0)
+            (waits1,w1') = if insertWaits1 
+                             then ([ ([p1],WaitRecv cid rid) | rid <- [w1+wid,w1+wid-1..wid+1]  ] ,0) 
+                             else ([],w1)
         rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (i-1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral i) (B.pack$ show i)) : rest
+        return$ waits0 ++ waits1 ++ ([p0],Send cid wid (B.pack$ show i)) : rest
 
 
 
@@ -254,7 +262,13 @@ runProcessM n m = do
 
 runProcs :: [ProcCommand] -> ProcessM ()
 runProcs tr = do
-   forM_ tr$ \(pids,c) -> forM_ pids$ sendCommand c
+   forM_ tr$ \(pids,c) -> do
+                ps <- forM pids$ \pid -> do
+                        p <- getProc pid
+                        sendCommand' c p
+                        return (p,pid)
+                forM_ ps$ uncurry readResponses 
+
    fmap fst get >>= \ps -> forM_ [0..length ps-1]$ sendCommand Quit
 
 
@@ -294,13 +308,17 @@ launchWorker pid = do
 sendCommand :: Command -> Int -> ProcessM ()
 sendCommand c i = do
     p <- getProc i
+    sendCommand' c p
+    readResponses p i
+
+sendCommand' :: Command -> Process -> ProcessM ()
+sendCommand' c p = do
     c' <- case c of
             ConnectTo _ pid cid mt -> 
                getProc pid >>= \pd -> return$ ConnectTo (uri pd) pid cid mt
             _ -> return c
     lift$ hPrint (h_in p) c'
     lift$ hFlush (h_in p)
-    readResponses p i
 
 
 readResponses :: Process -> Int -> ProcessM ()
