@@ -88,7 +88,7 @@ module Network.CCI
   ) where
 
 import Control.Concurrent     ( threadWaitRead )
-import Control.Exception      ( Exception, throwIO, bracket, onException, mask_ )
+import Control.Exception      ( Exception, throwIO, bracket, bracket_, onException, mask_ )
 import Control.Monad          ( liftM2, liftM3, join )
 import Data.Bits              ( (.|.), shiftR, shiftL, (.&.) )
 import Data.ByteString as B   ( ByteString, packCStringLen, unpack, pack, length )
@@ -218,7 +218,7 @@ foreign import ccall unsafe cci_finalize :: IO CInt
 
 -- | Wraps an IO action between calls to 'initCCI' and 'finalizeCCI'.
 withCCI :: IO a -> IO a
-withCCI = bracket initCCI (const finalizeCCI) . const
+withCCI = bracket_ initCCI finalizeCCI
 
 
 ------------------------------------------
