@@ -10,7 +10,7 @@ module TestGen
     , Command(..), TestError, testCommands, ProcCommand
     ) where
 
-import Control.Exception   ( catch, finally, IOException )
+import Control.Exception   ( catch, finally, IOException, evaluate, SomeException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
@@ -328,8 +328,9 @@ readResponse :: Process -> Int -> ProcessM Response
 readResponse p i = do
         someInput <- lift$ hWaitForInput (h_out p) 2000
         lift$ when (not someInput)$ ioError$ userError$ "process "++show i++" blocked" 
-        r <- lift$ fmap read $ hGetLine (h_out p)
-        -- lift$ putStrLn$ "resp: "++show r
+        line <- lift$ hGetLine (h_out p)
+        r <- lift$ evaluate (read line) `catch` 
+                  (\e -> ioError$ userError$ "failed reading response: "++show line++" with "++show (e :: SomeException))
         unless (r==Idle)$ addResponse r i
         return r
 
