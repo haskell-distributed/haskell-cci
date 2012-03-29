@@ -230,23 +230,22 @@ genInteraction c p0 p1 = do
         if b then return Nothing
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> WordPtr -> WordPtr -> Int -> CommandGen [ProcCommand]
+    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
     genSends cid p0 p1 w0 w1 0 = return$ 
-               [ ([p0],WaitSendCompletion cid sid) | sid <- [w0,w0-1..1] ]
-               ++ [ ([p1],WaitRecv cid rid) | rid <- [w1,w1-1..1]  ]
+               [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0,w0-1..1] ]
+               ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1,w1-1..1]  ]
                ++ [ ([p0],Disconnect cid) ]
-    genSends cid p0 p1 w0 w1 i = do
+    genSends cid p0 p1 w0 w1 mid = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
-        let wid = fromIntegral i
-            (waits0,w0') = if insertWaits0 
-                             then ([ ([p0],WaitSendCompletion cid sid) | sid <- [w0+wid,w0+wid-1..wid+1] ] ,0) 
+        let (waits0,w0') = if insertWaits0 
+                             then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0+mid,w0+mid-1..mid+1] ] ,0) 
                              else ([],w0)
             (waits1,w1') = if insertWaits1 
-                             then ([ ([p1],WaitRecv cid rid) | rid <- [w1+wid,w1+wid-1..wid+1]  ] ,0) 
+                             then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1+mid,w1+mid-1..mid+1]  ] ,0) 
                              else ([],w1)
-        rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (i-1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid wid (B.pack$ show i)) : rest
+        rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (mid-1)
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (B.pack$ show mid)) : rest
 
 
 
