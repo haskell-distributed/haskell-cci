@@ -62,18 +62,13 @@ when making ORNL CCI into a shared library.
 # Get ORNL CCI 0.1a1 release.
 # For parsci folks, this can be achieved by issuing:
 git clone git@git.assembla.com:cci-ornl.git cci
-cd cci
-git checkout v0.1a1
-cd ..
 
-# For the rest of the world, you have to request a copy of the 0.1a1 release 
-# to ORNL:
+# For the rest of the world, you have to request access to a recent copy of the 
+# cci library to ORNL:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 # or via the mailing list:
 http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
-# and then rename the uncompressed folder:
-tar -xzf cci-0.1a1.tar.gz
-mv cci-0.1a1 cci
+
 
 cabal configure -f "examples static-verbs"
 

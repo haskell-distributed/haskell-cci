@@ -60,6 +60,7 @@ Library
                     cci/src/api/arm_os_handle.c
                     cci/src/api/rma_register.c
                     cci/src/api/init.c
+                    cci/src/api/finalize.c
                     cci/src/api/send.c
                     cci/src/api/create_endpoint.c
                     cci/src/api/rma.c
@@ -68,7 +69,6 @@ Library
                     cci/src/api/get_devices.c
                     cci/src/api/set_opt.c
                     cci/src/api/strerror.c
-                    cci/src/api/free_devices.c
                     cci/src/api/connect.c
                     cci/src/api/get_opt.c
                     cci/src/api/sendv.c

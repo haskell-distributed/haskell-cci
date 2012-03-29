@@ -8,15 +8,15 @@ import Control.Exception     ( finally )
 import Control.Monad         ( forever, void )
 import qualified Data.ByteString as B  ( putStrLn )
 import Data.ByteString.Char8 ( pack )
-import Network.CCI           ( initCCI, withEndpoint, endpointURI, accept
+import Network.CCI           ( withCCI, withEndpoint, endpointURI, accept
                              , pollWithEventData, EventData(..), disconnect, send
 							 , unsafePackEventBytes
                              )
 
 
 main :: IO ()
-main = do
-    initCCI
+main =
+  withCCI$
     withEndpoint Nothing$ \(ep,_fd) -> do
       endpointURI ep >>= putStrLn
       _ <- forever$ pollWithEventData ep$ \evd ->

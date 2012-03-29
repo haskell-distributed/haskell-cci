@@ -9,7 +9,7 @@ import Data.ByteString as B  ( putStrLn, empty )
 import Data.ByteString.Char8 ( pack )
 import System.Environment    ( getArgs )
 
-import Network.CCI           ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
+import Network.CCI           ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
                              , pollWithEventData, EventData(..), disconnect, send
                              , unsafePackEventBytes
                              )
@@ -17,8 +17,8 @@ import Network.CCI           ( initCCI, withEndpoint, connect, ConnectionAttribu
 
 main :: IO ()
 main = do
-    [uri] <- getArgs
-    initCCI
+  [uri] <- getArgs
+  withCCI$
     withEndpoint Nothing$ \(ep,fd) -> do
       connect ep uri empty CONN_ATTR_UU 0 Nothing
       print fd

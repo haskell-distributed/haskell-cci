@@ -20,12 +20,11 @@
 --
 module Network.CCI
   ( initCCI
+  , finalizeCCI
+  , withCCI
   -- * Devices
   , Device
-  , DevicesHandle
   , getDevices
-  , freeDevices
-  , withDevices
   -- * Endpoints
   , Endpoint
   , createEndpoint
@@ -203,6 +202,24 @@ initCCI = alloca$ \p -> poke p 0 >> cci_init #{const CCI_ABI_VERSION} 0 p  >>= c
 foreign import ccall unsafe cci_init :: Word32 -> Word32 -> Ptr Word32 -> IO CInt
 
 
+-- | This is the last CCI function that must be called; no other
+--   CCI functions can be invoked after this function.
+--
+--  Returns 'SUCCESS' iff CCI has been properly finalized.
+--
+--  If initCCI was invoked multiple times, finalizeCCI should be
+--  called as many times, and only the last one will not be a no-op.
+--
+finalizeCCI :: IO ()
+finalizeCCI = cci_finalize >>= cci_check_exception
+
+foreign import ccall unsafe cci_finalize :: IO CInt
+
+
+-- | Wraps an IO action between calls to 'initCCI' and 'finalizeCCI'.
+withCCI :: IO a -> IO a
+withCCI = bracket initCCI (const finalizeCCI) . const
+
 
 ------------------------------------------
 -- Devices
@@ -214,9 +231,6 @@ foreign import ccall unsafe cci_init :: Word32 -> Word32 -> Ptr Word32 -> IO CIn
 --
 newtype Device = Device (Ptr Device)
 
--- | Handle used to free devices
-newtype DevicesHandle = DevicesHandle (Ptr (Ptr Device))
-
 
 -- | Returns a list of \"up\" devices.
 --
@@ -224,15 +238,11 @@ newtype DevicesHandle = DevicesHandle (Ptr (Ptr Device))
 -- the devices. If two devices share the same priority, their
 -- ordering in the return array is arbitrary.
 --
--- Use the returned handle to freed resources associated with
--- the devices using 'freeDevices'.
---
--- Use 'withDevices' instead when it fits your purposes.
-getDevices :: IO ([Device],DevicesHandle)
+getDevices :: IO [Device]
 getDevices = do
     pdev <- alloca$ \ppdev -> cci_get_devices ppdev >>= cci_check_exception >> peek ppdev
     devices <- peekNullTerminated pdev 0
-    return (map Device devices,DevicesHandle pdev)
+    return$ map Device devices
   where
     peekNullTerminated :: Ptr (Ptr Device) -> Int -> IO [Ptr Device]
     peekNullTerminated p i = do
@@ -242,28 +252,6 @@ getDevices = do
 
 
 foreign import ccall unsafe cci_get_devices :: Ptr (Ptr (Ptr Device)) -> IO CInt
-
-
--- | Resources used by devices obtained with 'getDevices' are freed 
--- with this call.
---
--- Calling this on a DevicesHandles which has been freed already
--- has no effect.
---
--- Drivers may throw some error when freeing devices.
---
-freeDevices :: DevicesHandle -> IO ()
-freeDevices (DevicesHandle p) = cci_free_devices p >>= cci_check_exception
-
-foreign import ccall unsafe cci_free_devices :: Ptr (Ptr Device) -> IO CInt
-
-
--- | Calls 'getDevices' and 'freeDevices' around a given
--- block of code. in the presence of errors, 'freeDevices'
--- is guaranteed to be called.
-withDevices :: ([Device] -> IO a) -> IO a
-withDevices f = bracket getDevices (freeDevices . snd) (f . fst)
-
 
 
 
@@ -784,8 +772,8 @@ withConnectionRMALocalHandle c cs = bracket (rmaConnectionRegister c cs) rmaDere
 -- completion does not imply a remote completion event, merely a successful
 -- RMA operation.
 --
--- Optionally, sends a remote completion event to the target. If msg_ptr
--- and msg_len are provided, send a completion event to the target after
+-- Optionally, sends a remote completion event to the target. If a 'ByteString'
+-- message is provided, send a completion event to the target after
 -- the RMA has completed. It is guaranteed to arrive after the RMA operation
 -- has finished.
 --

@@ -35,7 +35,7 @@ import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr )
 import System.IO               ( hPutStrLn, stderr )
 
-import Network.CCI             ( initCCI, withEndpoint, connect, ConnectionAttributes(..)
+import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
                                , endpointURI, pollWithEventData, tryWithEventData
@@ -55,8 +55,8 @@ sendResponse r = hPutStrLn stderr ("response: "++show r) >> C.sendResponse r
 
 main :: IO ()
 main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
-    initCommands
-    initCCI
+   initCommands
+   withCCI$ do
     rcm <- emptyConnMap
     rcrs <- emptyConnReq
     withEndpoint Nothing$ \(ep,_fd) -> do
