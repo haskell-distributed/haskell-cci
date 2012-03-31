@@ -43,19 +43,15 @@ Library
                        
   ghc-options:      -O -Wall
 
-  if flag(static-verbs)
-    include-dirs:   cci/include, cci/src
-    c-sources:
+  include-dirs:   cci/include, cci/src
+  extra-libraries:  ltdl, rdmacm
+  c-sources:
                     cci/src/plugins/base/init.c
                     cci/src/plugins/base/open.c
                     cci/src/plugins/base/close.c
 
                     cci/src/plugins/core/base/verify.c
                     cci/src/plugins/core/base/close.c
-
-                    core_base_open.c
-                    cci/src/plugins/core/verbs/core_verbs_module.c
-                    cci/src/plugins/core/verbs/core_verbs_api.c
 
                     cci/src/api/arm_os_handle.c
                     cci/src/api/rma_register.c
@@ -80,9 +76,20 @@ Library
 
                     cci/src/util/argv.c
 
-    extra-libraries:  ltdl, rdmacm
+  if flag(static-verbs)
+    c-sources:
+                    core_base_open_verbs.c
+                    cci/src/plugins/core/verbs/core_verbs_module.c
+                    cci/src/plugins/core/verbs/core_verbs_api.c
+
   else
-    extra-libraries:  cci
+--    extra-lib-dirs:  /home/facundo.dominguez/cci-haskell/cci/built/lib
+--    extra-libraries:  cci
+    c-sources:
+                    core_base_open_sock.c
+                    cci/src/plugins/core/sock/core_sock_module.c
+                    cci/src/plugins/core/sock/core_sock_api.c
+
 
 
 Flag examples

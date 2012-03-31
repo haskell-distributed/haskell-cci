@@ -19,7 +19,7 @@ import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
 import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..) )
-import System.Process  ( terminateProcess, ProcessHandle
+import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
                        )
 import System.Random   ( Random(..), StdGen, mkStdGen )
@@ -257,7 +257,8 @@ runProcessM :: Int -> ProcessM a -> IO (a,[[Response]])
 runProcessM n m = do
     ps <- mapM launchWorker [0..n-1]
     (fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps))
-      `finally` forM_ ps (\p -> terminateProcess (ph p))
+      `finally` (do forM_ ps (\p -> terminateProcess (ph p))
+                    forM_ ps (\p -> waitForProcess (ph p)))
 
 runProcs :: [ProcCommand] -> ProcessM ()
 runProcs tr = do
@@ -282,7 +283,7 @@ data Process = Process
 
 launchWorker :: Int -> IO Process
 launchWorker pid = do
-    -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini")])
+    -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini"),("LD_LIBRARY_PATH","cci/built/lib")])
     herr <- openBinaryFile ("worker-stderr"++show pid++".txt") WriteMode
     (Just hin,Just hout,_herr,phandle) <- createProcess CreateProcess 
                                   { cmdspec = RawCommand workerPath []
