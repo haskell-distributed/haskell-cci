@@ -7,14 +7,15 @@
 {-# LANGUAGE PatternGuards #-}
 module TestGen
     ( testProp, TestConfig(..), defaultTestConfig, runCommands, Response(..)
-    , Command(..), TestError, testCommands, ProcCommand
+    , Command(..), TestError, testCommands, ProcCommand, generateCTest
     ) where
 
 import Control.Exception   ( catch, finally, IOException, evaluate, SomeException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
-import Data.List       ( sort, nub )
+import Data.Function   ( on )
+import Data.List       ( sort, nub, sortBy, groupBy, intersperse )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
@@ -23,7 +24,7 @@ import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
                        )
 import System.Random   ( Random(..), StdGen, mkStdGen )
-
+import Text.PrettyPrint (render,empty,hsep,vcat,text,char,($$),nest,(<+>))
 
 import Commands        ( Command(..), Response(..)  )
 
@@ -103,21 +104,80 @@ shrink propName tr err nProc f = go (shrinkCommands tr)
 runCommands :: [ProcCommand] -> IO [[Response]]
 runCommands t = fmap snd$ runProcessM (1 + maximum (concatMap fst t))$ runProcs t
 
-{-
-generateCCommands :: [(Int,Command)] -> String
-generateCCommands = unlines
-                  . map (wrapProc . unlines . map (genC . snd)) 
-                  . groupBy (compare `on` fst) . sortBy (compare `on` fst) 
-                  . genTurns
-  where
-    genTurns [] = []
-    genTurns ((pid,c):cmds) = (pid,(0,c)) : go pid 0 cmds
-      where
-        go _ [] = []
-        go lpid ((pid,c):cmds) = (pid,(lpid/=pid,c)) : genTurns pid cmds
 
-    genC ()
--}
+generateCTest :: [ProcCommand] -> String
+generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
+                                    $ sortBy (compare `on` fst)
+                                    $ concatMap (\(ps,c) -> map (flip (,) c) ps) cmds
+                      in render$ includes $$ vcat (map wrapProcCmds procCmds) $$ driver cmds $$ genMain cmds
+  where
+    cciStatement (ConnectTo _ pd _ _) = "connect(p,test_uri["++show pd++"]);"
+    cciStatement (WaitConnection c) = "cci_connection_t* c"++show c++" = wait_connection(p);"
+    cciStatement (Send c si msg) = "send(p,c"++show c++","++show si++","++show msg++");"
+    cciStatement (Disconnect c) = "disconnect(p,c"++show c++");"
+    cciStatement (WaitSendCompletion _ _) = "poll_events(p);"
+    cciStatement (WaitRecv _ _) = "poll_events(p);"
+    cciStatement cmd = "unknown command: " ++ show cmd ++";"
+
+    wrapProcCmds cs@((i,_):_) = 
+             text ("void process"++show i++"(proc_t* p) {")
+             $$ nest 4 (vcat$ map (text . cciStatement . snd) cs) 
+             $$ char '}'
+    wrapProcCmds _ = error "TestGen.wrapProcCmds"
+
+    driver cs =
+             text "void driver(proc_t* p) {"
+             $$ nest 4 (text "char buf[100];")
+             $$ nest 4 (vcat$ map readWrites cs)
+             $$ char '}'
+
+    readWrites (_,Accept _) = empty
+    readWrites (ps,_) = vcat$ map (\i->text$ "write_msg(p["++show i++"],\"\");") ps 
+                              ++ map (\i->text$ "read_msg(p["++show i++"],buf);") ps
+
+    includes = vcat$ map text
+        [ "#include <stdio.h>"
+        , "#include <string.h>"
+        , "#include <strings.h>"
+        , "#include <stdlib.h>"
+        , "#include <unistd.h>"
+        , "#include <inttypes.h>"
+        , "#include <assert.h>"
+        , "#include <sys/time.h>"
+        , "#include <time.h>"
+        , "#include \"cci.h\""
+        , "#include \"testlib.h\""
+        ]
+
+    genMain cs =
+         let maxProcIndex = maximum$ concatMap fst cs
+             ps = sort$ nub$ concatMap fst cs
+          in text "int main(int argc, char *argv[]) {"
+             $$ (nest 4$ vcat$
+                   [ text "proc_t* p[100];"
+                   , text "memset(p,0,100*sizeof(proc_t*));"
+                   , hsep (intersperse (text "else")$ map (genSpawn (maxProcIndex+1)) ps)
+                       <+> vcat 
+                          [ char '{'
+                          , nest 4$ vcat
+                              [ text ("write_uris(p,"++show (maxProcIndex+1)++");")
+                              , text "drive(p);"
+                              , text "wait();"
+                              ]
+                          , char '}' 
+                          , text "return 0;"
+                          ]
+                   ]
+                )
+             $$ char '}'
+
+    genSpawn n i = text "if (!spawn(&p[0],0)) {"
+                 $$ nest 4 (
+                       text ("read_uris(p["++show i++"],"++show n++");")
+                       $$ text ("process"++show i++"(p["++show i++"]);")
+                    )
+                 $$ char '}'
+
 
 -- Command generation
 

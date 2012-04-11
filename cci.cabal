@@ -128,7 +128,7 @@ Test-Suite test-cci
   type:           exitcode-stdio-1.0
   main-is:        Props.hs
   hs-source-dirs: test
-  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0
+  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, pretty
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
 
 Executable test-Worker
