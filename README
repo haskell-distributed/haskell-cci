@@ -95,3 +95,8 @@ CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46
 # Start the client using active messages
 CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
 
+
+== Testing ==
+
+See test/README.
+

@@ -81,3 +81,15 @@ or with
 main :: IO ()
 main = testCommands "example prop" test 2 (\_cmds _rs -> your prop) >>= print
   
+A C test program can be generated that executes the command sequence using the CCI C API:
+
+main :: IO ()
+main = writeFile "t.c"$ generateCTest test
+
+The C program will be saved to t.c. It needs to be compiled and linked with 
+test/testlib.c. Assuming it is compiled into an executable called "t", it 
+can be run with:
+
+CCI_CONFIG=cci.ini ./t
+
+
