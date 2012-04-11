@@ -37,6 +37,8 @@ void poll_event(proc_t* p)
 {
     cci_event_t *event;
     int pid = p->cci_pid;
+    char buf[100];
+    read_msg(p,buf);
 
     while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
     }
@@ -63,6 +65,7 @@ void poll_event(proc_t* p)
            break;
     }
     cci_return_event(event);
+    write_msg(p,"");
 }
 
 cci_connection_t*  wait_connection(proc_t* p)
@@ -73,7 +76,10 @@ cci_connection_t*  wait_connection(proc_t* p)
     char buf[100];
     read_msg(p,buf);
 
+    struct timespec ts = { 0, 100*1000 };
     while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+        if (pid==1) 
+            nanosleep(&ts,NULL);
     }
 
     if (event->type==CCI_EVENT_CONNECT_REQUEST) {

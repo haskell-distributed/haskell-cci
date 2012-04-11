@@ -15,7 +15,7 @@ import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import qualified Data.ByteString.Char8 as B ( pack )
 import Data.Function   ( on )
-import Data.List       ( sort, nub, sortBy, groupBy, intersperse )
+import Data.List       ( sort, nub, sortBy, groupBy )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
@@ -24,7 +24,7 @@ import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
                        )
 import System.Random   ( Random(..), StdGen, mkStdGen )
-import Text.PrettyPrint (render,empty,hsep,vcat,text,char,($$),nest,(<+>))
+import Text.PrettyPrint (render,empty,vcat,text,char,($$),nest,(<>),hcat)
 
 import Commands        ( Command(..), Response(..)  )
 
@@ -111,28 +111,31 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
                                     $ concatMap (\(ps,c) -> map (flip (,) c) ps) cmds
                       in render$ includes $$ vcat (map wrapProcCmds procCmds) $$ driver cmds $$ genMain cmds
   where
-    cciStatement (ConnectTo _ pd _ _) = "connect(p,test_uri["++show pd++"]);"
-    cciStatement (WaitConnection c) = "cci_connection_t* c"++show c++" = wait_connection(p);"
-    cciStatement (Send c si msg) = "send(p,c"++show c++","++show si++","++show msg++");"
-    cciStatement (Disconnect c) = "disconnect(p,c"++show c++");"
-    cciStatement (WaitSendCompletion _ _) = "poll_events(p);"
-    cciStatement (WaitRecv _ _) = "poll_events(p);"
-    cciStatement cmd = "unknown command: " ++ show cmd ++";"
+    cciStatement (ConnectTo _ pd _ _) = text "" $$ text ("connect(p,test_uri["++show pd++"]);")
+    cciStatement (WaitConnection c) = text "" $$ text ("cci_connection_t* c"++show c++" = wait_connection(p);")
+    cciStatement (Send c si msg) = text "" $$ text ("send(p,c"++show c++","++show si++","++show msg++");")
+    cciStatement (Disconnect c) = text "" $$ text ("disconnect(p,c"++show c++");")
+    cciStatement (WaitSendCompletion _ _) = text "" $$ text "poll_event(p);"
+    cciStatement (WaitRecv _ _) = text "" $$ text "poll_event(p);"
+    cciStatement (Accept _) = empty
+    cciStatement cmd = text "" $$ text ("unknown command: " ++ show cmd ++";")
 
     wrapProcCmds cs@((i,_):_) = 
              text ("void process"++show i++"(proc_t* p) {")
-             $$ nest 4 (vcat$ map (text . cciStatement . snd) cs) 
+             $$ nest 4 (vcat$ map (cciStatement . snd) cs) 
              $$ char '}'
+             $$ text ""
     wrapProcCmds _ = error "TestGen.wrapProcCmds"
 
     driver cs =
-             text "void driver(proc_t* p) {"
+             text "void drive(proc_t** p) {"
              $$ nest 4 (text "char buf[100];")
              $$ nest 4 (vcat$ map readWrites cs)
              $$ char '}'
+             $$ text ""
 
     readWrites (_,Accept _) = empty
-    readWrites (ps,_) = vcat$ map (\i->text$ "write_msg(p["++show i++"],\"\");") ps 
+    readWrites (ps,_) = vcat$ text "" : map (\i->text$ "write_msg(p["++show i++"],\"\");") ps 
                               ++ map (\i->text$ "read_msg(p["++show i++"],buf);") ps
 
     includes = vcat$ map text
@@ -147,6 +150,7 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
         , "#include <time.h>"
         , "#include \"cci.h\""
         , "#include \"testlib.h\""
+        , ""
         ]
 
     genMain cs =
@@ -156,9 +160,10 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
              $$ (nest 4$ vcat$
                    [ text "proc_t* p[100];"
                    , text "memset(p,0,100*sizeof(proc_t*));"
-                   , hsep (intersperse (text "else")$ map (genSpawn (maxProcIndex+1)) ps)
-                       <+> vcat 
-                          [ char '{'
+                   , text ""
+                   , hcat (map vcat$ map1 (mapFirst (nest 7))$ map (genSpawn (maxProcIndex+1)) ps)
+                       <> vcat 
+                          [ nest 7$ text "{"
                           , nest 4$ vcat
                               [ text ("write_uris(p,"++show (maxProcIndex+1)++");")
                               , text "drive(p);"
@@ -171,13 +176,19 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
                 )
              $$ char '}'
 
-    genSpawn n i = text "if (!spawn(&p[0],0)) {"
-                 $$ nest 4 (
+    genSpawn n i = [ text$ "if (!spawn(&p["++show i++"],"++show i++")) {"
+                   , nest 4 (
                        text ("read_uris(p["++show i++"],"++show n++");")
                        $$ text ("process"++show i++"(p["++show i++"]);")
-                    )
-                 $$ char '}'
+                     )
+                   , text "} else "
+                   ]
 
+    map1 _ [] = []
+    map1 f (x:xs) = x : map f xs
+
+    mapFirst _ [] = []
+    mapFirst f (x:xs) = f x : xs
 
 -- Command generation
 
