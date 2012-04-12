@@ -9,9 +9,9 @@ extern char* test_uri[100];
 
 void poll_event(proc_t* p);
 
-cci_connection_t*  wait_connection(proc_t* p);
+cci_connection_t*  wait_connection(proc_t* p,int cid);
 
-void connect(proc_t* p,char* server_uri); 
+void connect(proc_t* p,int cid,char* server_uri); 
 
 void disconnect(proc_t* p,cci_connection_t* c); 
 

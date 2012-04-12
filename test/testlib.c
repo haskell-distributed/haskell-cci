@@ -19,6 +19,7 @@ struct Proc {
     int cci_pid;
     char rbuf[100];
     size_t rcount;
+	cci_connection_t* conns[100];
 };
 
 char* test_uri[100];
@@ -33,6 +34,35 @@ void check_return(char *func, cci_endpoint_t* ep, int ret, int need_exit) {
 	return;
 }
 
+void handle_event(proc_t* p,cci_event_t* event) {
+	int pid = p->cci_pid;
+    switch(event->type) {
+       case CCI_EVENT_CONNECT_REQUEST:
+           fprintf(stderr,"process %d: CCI_EVENT_CONNECT_REQUEST\n",pid);
+		   cci_accept(event,((void**)event->request.data_ptr)[0]);
+           break;
+       case CCI_EVENT_CONNECT:
+           fprintf(stderr,"process %d: CCI_EVENT_CONNECT\n",pid);
+           p->conns[(int64_t)event->connect.context] = event->connect.connection;
+           break;
+       case CCI_EVENT_ACCEPT:
+           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT\n",pid);
+           p->conns[(int64_t)event->connect.context] = event->accept.connection;
+           break;
+       case CCI_EVENT_RECV:
+           fprintf(stderr,"process %d: CCI_EVENT_RECV\n",pid);
+           break;
+       case CCI_EVENT_SEND:
+           fprintf(stderr,"process %d: CCI_EVENT_SEND\n",pid);
+           break;
+       default:
+           fprintf(stderr,"process %d: aborting with received event: %d\n",pid,event->type);
+           exit(1);
+           break;
+    }
+}
+
+
 void poll_event(proc_t* p)
 {
     cci_event_t *event;
@@ -43,32 +73,12 @@ void poll_event(proc_t* p)
     while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
     }
 
-    switch(event->type) {
-       case CCI_EVENT_CONNECT_REQUEST:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT_REQUEST\n");
-           cci_accept(event,NULL);
-           break;
-       case CCI_EVENT_CONNECT:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT\n",pid);
-           break;
-       case CCI_EVENT_ACCEPT:
-           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT\n",pid);
-           break;
-       case CCI_EVENT_RECV:
-           fprintf(stderr,"process %d: CCI_EVENT_RECV\n",pid);
-           break;
-       case CCI_EVENT_SEND:
-           fprintf(stderr,"process %d: CCI_EVENT_SEND\n",pid);
-           break;
-       default:
-           fprintf(stderr,"process %d: Received event: %d\n",pid,event->type);
-           break;
-    }
+	handle_event(p,event);
     cci_return_event(event);
     write_msg(p,"");
 }
 
-cci_connection_t*  wait_connection(proc_t* p)
+cci_connection_t*  wait_connection(proc_t* p,int cid)
 {
     cci_event_t *event;
     cci_connection_t* conn = NULL;
@@ -76,47 +86,17 @@ cci_connection_t*  wait_connection(proc_t* p)
     char buf[100];
     read_msg(p,buf);
 
-    struct timespec ts = { 0, 100*1000 };
-    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
-        if (pid==1) 
-            nanosleep(&ts,NULL);
+    // struct timespec ts = { 0, 100*1000 };
+	while(!p->conns[cid]) {
+	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+		   // if (pid==1) 
+			 //   nanosleep(&ts,NULL);
+		}
+		handle_event(p,event);
+		cci_return_event(event);
     }
-
-    if (event->type==CCI_EVENT_CONNECT_REQUEST) {
-        cci_accept(event,0);
-        cci_return_event(event);
-        while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
-        }
-    }
-
-    fprintf(stderr,"process %d: waiting connection\n",pid);
-    switch(event->type) {
-       case CCI_EVENT_CONNECT_REQUEST:
-           fprintf(stderr,"process %d: aborting with CCI_EVENT_CONNECT_REQUEST\n",pid);
-           exit(1);
-           break;
-       case CCI_EVENT_CONNECT:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT\n",pid);
-           conn = event->connect.connection;
-           break;
-       case CCI_EVENT_ACCEPT:
-           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT\n",pid);
-           conn = event->accept.connection;
-           break;
-       case CCI_EVENT_RECV:
-           fprintf(stderr,"process %d: aborting with CCI_EVENT_RECV\n",pid);
-           exit(1);
-           break;
-       case CCI_EVENT_SEND:
-           fprintf(stderr,"process %d: aborting with CCI_EVENT_SEND\n",pid);
-           exit(1);
-           break;
-       default:
-           fprintf(stderr,"process %d: aborting with received event: %d\n",pid,event->type);
-           exit(1);
-           break;
-    }
-    cci_return_event(event);
+	conn = p->conns[cid];
+	p->conns[cid] = NULL;
 
     write_msg(p,"");
     return conn;
@@ -143,11 +123,12 @@ void init() {
 	check_return("cci_init", NULL, ret, 1);
 }
 
-void connect(proc_t* p,char* server_uri) {
+void connect(proc_t* p,int cid,char* server_uri) {
     char buf[100];
     read_msg(p,buf);
+	void* data[] = { (void*)(int64_t)cid };
 
-	int ret = cci_connect(p->endpoint,server_uri, NULL, 0,CCI_CONN_ATTR_RO , NULL, 0, NULL);
+	int ret = cci_connect(p->endpoint,server_uri, data, sizeof(void*),CCI_CONN_ATTR_RO , (void*)(int64_t) cid, 0, NULL);
 	check_return("cci_connect", p->endpoint, ret, 1);
 
 	printf("Connecting to %s\n", server_uri);
@@ -201,6 +182,7 @@ int spawn(proc_t** p,int cci_pid) {
     (*p)->uri[0] = '\0';
     (*p)->cci_pid = cci_pid;
     (*p)->rcount = 0;
+	memset((*p)->conns,0,100*sizeof(cci_connection_t*));
 
     if (pipe(fdi)) {
         perror("Error creating pipe");

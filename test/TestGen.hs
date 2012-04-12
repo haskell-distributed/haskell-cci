@@ -111,8 +111,8 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
                                     $ concatMap (\(ps,c) -> map (flip (,) c) ps) cmds
                       in render$ includes $$ vcat (map wrapProcCmds procCmds) $$ driver cmds $$ genMain cmds
   where
-    cciStatement (ConnectTo _ pd _ _) = text "" $$ text ("connect(p,test_uri["++show pd++"]);")
-    cciStatement (WaitConnection c) = text "" $$ text ("cci_connection_t* c"++show c++" = wait_connection(p);")
+    cciStatement (ConnectTo _ pd c _) = text "" $$ text ("connect(p,"++show c++",test_uri["++show pd++"]);")
+    cciStatement (WaitConnection c) = text "" $$ text ("cci_connection_t* c"++show c++" = wait_connection(p,"++show c++");")
     cciStatement (Send c si msg) = text "" $$ text ("send(p,c"++show c++","++show si++","++show msg++");")
     cciStatement (Disconnect c) = text "" $$ text ("disconnect(p,c"++show c++");")
     cciStatement (WaitSendCompletion _ _) = text "" $$ text "poll_event(p);"
