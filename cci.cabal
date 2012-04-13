@@ -43,7 +43,7 @@ Library
                        
   ghc-options:      -O -Wall
 
-  include-dirs:   cci/include, cci/src
+  include-dirs:   cci/include, cci/src, cci/src/api
   extra-libraries:  ltdl, rdmacm
   c-sources:
                     cci/src/plugins/base/init.c

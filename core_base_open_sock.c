@@ -15,8 +15,19 @@ cci_plugin_core_t *cci_core = NULL;
 lt_dlhandle cci_plugins_core_handle;
 
 extern cci_plugin_core_t cci_core_sock_plugin;
+struct cci_plugin_handle *cci_all_plugins = NULL;
 
 int cci_plugins_core_open(void) {
-    cci_core = &cci_core_sock_plugin;
+
+    cci_all_plugins = (struct cci_plugin_handle*)malloc(2*sizeof(struct cci_plugin_handle));
+    cci_all_plugins->plugin = (cci_plugin_t*)&cci_core_sock_plugin;
+    cci_all_plugins->handle = NULL;
+    cci_all_plugins->init_status = 0;
+
+    cci_all_plugins[1].plugin = NULL;
+    cci_all_plugins[1].handle = NULL;
+    cci_all_plugins[1].init_status = 0;
+
+ 
     return CCI_SUCCESS;
 }
