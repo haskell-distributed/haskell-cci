@@ -27,5 +27,7 @@ int read_uris(proc_t* p,int n);
 
 int write_uris(proc_t** p,int n);
 
+void finalize(proc_t *p);
+
 #endif // TESTLIB_H
 

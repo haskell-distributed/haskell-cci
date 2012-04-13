@@ -122,7 +122,10 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
 
     wrapProcCmds cs@((i,_):_) = 
              text ("void process"++show i++"(proc_t* p) {")
-             $$ nest 4 (vcat$ map (cciStatement . snd) cs) 
+             $$ nest 4 (vcat (map (cciStatement . snd) cs) 
+                        $$ text ""
+                        $$ text "finalize(p);"
+                       )
              $$ char '}'
              $$ text ""
     wrapProcCmds _ = error "TestGen.wrapProcCmds"

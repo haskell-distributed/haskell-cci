@@ -250,4 +250,9 @@ int write_uris(proc_t** p,int n) {
     }
 }
 
+void finalize(proc_t *p) {
+	cci_destroy_endpoint(p->endpoint);
+	cci_finalize();
+	return;
+}
 
