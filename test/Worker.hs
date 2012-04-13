@@ -38,7 +38,7 @@ import System.IO               ( hPutStrLn, stderr )
 import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
-                               , endpointURI, pollWithEventData, tryWithEventData
+                               , endpointURI, pollWithEventData
                                )
 
 import Commands                ( initCommands,readCommand
@@ -106,7 +106,6 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 
            Quit -> sendResponse Idle
 
-    waitEvent rcm rcrs ep = pollWithEventData ep$ handleEvent rcm rcrs
 
     waitConnection rcm rcrs ep cid = do
             mc <- getConn cid rcm
@@ -166,8 +165,8 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 
 -- | @loopWhileM p io@ performs @io@ repeteadly while its result satisfies @p@.
 -- Yields the first offending result.
-loopWhileM :: (a -> Bool) -> IO a -> IO a
-loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
+-- loopWhileM :: (a -> Bool) -> IO a -> IO a
+-- loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
 
 
 -- Map of connection requests
