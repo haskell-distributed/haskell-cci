@@ -27,6 +27,7 @@ import Data.ByteString as B    ( ByteString, concat )
 import Data.ByteString.Lazy    ( toChunks, fromChunks )
 import qualified Data.ByteString.Char8 as B8 ( unpack )
 import Data.Binary             ( decode, encode )
+import Data.Char               ( isDigit )
 import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
 import qualified Data.Map as M ( empty, Map, lookup, insert )
 import qualified Data.Set as S ( empty, Set, insert, member, delete )
@@ -149,7 +150,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                       cid   <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
                       bs' <- unsafePackEventBytes bs
-                      let ctx = read$ B8.unpack bs' :: WordPtr
+                      let ctx = read$ takeWhile isDigit$ B8.unpack bs' :: WordPtr
                       seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
                       sendResponse (Recv cid bs')
 
