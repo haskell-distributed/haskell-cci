@@ -19,6 +19,7 @@ import Data.List       ( sort, nub, sortBy, groupBy )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
+import System.Environment ( getEnvironment )
 import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..) )
 import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
@@ -359,10 +360,11 @@ launchWorker :: Int -> IO Process
 launchWorker pid = do
     -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini"),("LD_LIBRARY_PATH","cci/built/lib")])
     herr <- openBinaryFile ("worker-stderr"++show pid++".txt") WriteMode
+    env <- getEnvironment
     (Just hin,Just hout,_herr,phandle) <- createProcess CreateProcess 
                                   { cmdspec = RawCommand workerPath []
                                   , cwd = Nothing
-                                  , env = Just [("CCI_CONFIG","cci.ini")]
+                                  , env = Just$ [("CCI_CONFIG","cci.ini")]++env
                                   , std_in = CreatePipe
                                   , std_out = CreatePipe
                                   , std_err = UseHandle herr

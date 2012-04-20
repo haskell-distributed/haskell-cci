@@ -45,7 +45,8 @@ Library
 
   include-dirs:   cci/include, cci/src, cci/src/api
   extra-libraries:  ltdl, rdmacm
-  c-sources:
+  if flag(static-verbs) || flag (static-sock)
+    c-sources:
                     cci/src/plugins/base/init.c
                     cci/src/plugins/base/open.c
                     cci/src/plugins/base/close.c
@@ -83,13 +84,13 @@ Library
                     cci/src/plugins/core/verbs/core_verbs_api.c
 
   else
---    extra-lib-dirs:  /home/facundo.dominguez/cci-haskell/cci/built/lib
---    extra-libraries:  cci
+   if flag(static-sock)
     c-sources:
                     core_base_open_sock.c
                     cci/src/plugins/core/sock/core_sock_module.c
                     cci/src/plugins/core/sock/core_sock_api.c
-
+   else
+    extra-libraries:  cci
 
 
 Flag examples
@@ -98,6 +99,10 @@ Flag examples
 
 Flag static-verbs
   Description: Builds cci statically and makes it load the verbs driver exclusively.
+  Default: False
+
+Flag static-sock
+  Description: Builds cci statically and makes it load the sock driver exclusively.
   Default: False
 
 Executable ex-client

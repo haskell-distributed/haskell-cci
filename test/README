@@ -1,7 +1,7 @@
 Files in this folder implement test generation.
 The test are run by issuing the following commands from the cci-haskell parent folder:
 
-cabal config -f "examples static-verbs" --enable-tests
+cabal config -f "examples" --enable-tests
 cabal build
 cabal test
 

@@ -12,7 +12,7 @@ cabal configure # avoid using "-f examples" or cabal haddock will fail.
 cabal haddock
 
 
-== Building cci for using the UDP sockets ==
+== Building cci ==
 
 # Install the 0.1a1 release of cci first. You'll have to request it at:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
@@ -54,10 +54,16 @@ CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 
 CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
 
 
-== Building cci for using the verbs driver ==
+== Building cci statically ==
 
-This procedure builds cci statically due to some issues we have
-when making ORNL CCI into a shared library.
+This procedure builds cci statically due to some issues we had in
+the past when making ORNL CCI into a shared library. These issues have
+been solved now, but we keep the procedure just in case.
+
+This built can use only one driver. You can pass either static-verbs
+below if you want to use the verbs driver, or static-sock if you want
+to use the sock driver instead. No other drivers are possible to use
+this way.
 
 # Get ORNL CCI 0.1a1 release.
 # For parsci folks, this can be achieved by issuing:
