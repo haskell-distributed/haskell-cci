@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ForeignFunctionInterface   #-}
+{-# LANGUAGE GADTs                      #-} 
 
 -- | Haskell bindings for CCI. 
 --
@@ -97,7 +98,7 @@ import Data.Dynamic           ( Typeable )
 import Data.Word              ( Word8, Word32, Word64 )
 import Foreign.C.Types        ( CInt, CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
-import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr )
+import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
 import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff, sizeOf) )
 
@@ -349,7 +350,8 @@ withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
 -- | Driver created URI of the endpoint. May be passed to clients out-of-band
 -- to pass to 'connect'. The application should never need to parse this URI.
 endpointURI :: Endpoint -> IO String
-endpointURI (Endpoint pend) = #{peek cci_endpoint_t, name} pend >>= peekCString
+endpointURI e = getEndpointOpt e OPT_ENDPT_URI 
+                >>= return . either (error "endpointURI: unexpected Word32") id
 
 
 ------------------------------------------
@@ -1192,6 +1194,7 @@ setEndpointOpt (Endpoint pend) eo v = allocaBytes #{size cci_opt_handle_t}$ \ph 
       #{poke cci_opt_handle_t, endpoint} ph pend
       cci_set_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv (fromIntegral$ sizeOf v)
         >>= cci_check_exception
+    
 
 
 -- | Retrieves a connection option value.
@@ -1208,9 +1211,9 @@ getConnectionOpt (Connection pconn) co = allocaBytes #{size cci_opt_handle_t}$ \
       #{poke cci_opt_handle_t, connection} ph pconn
       cci_get_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv pl
         >>= cci_check_exception
-      peek pv >>= peek
+      peek pv >>= peek . castPtr
 
-foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr Word32) -> Ptr CInt -> IO CInt
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()) -> Ptr CInt -> IO CInt
 
 
 -- | Retrieves an endpoint option value.
@@ -1221,55 +1224,70 @@ foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr Wo
 -- 
 --  * driver-specific errors.
 --
-getEndpointOpt :: Endpoint -> EndpointOption -> IO Word32
+getEndpointOpt :: Endpoint -> EndpointOption -> IO (Either Word32 String)
 getEndpointOpt (Endpoint pend) eo = allocaBytes #{size cci_opt_handle_t}$ \ph ->
     alloca$ \pv -> alloca$ \pl -> do
       #{poke cci_opt_handle_t, endpoint} ph pend
       cci_get_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv pl
         >>= cci_check_exception
-      peek pv >>= peek
-
+      peek pv >>= peekE eo
+  where
+    peekE :: EndpointOption -> Ptr () -> IO (Either Word32 String)
+    peekE e =
+      case e of
+        OPT_ENDPT_SEND_TIMEOUT -> fmap Left . peek . castPtr
+        OPT_ENDPT_RECV_BUF_COUNT -> fmap Left . peek . castPtr
+        OPT_ENDPT_SEND_BUF_COUNT -> fmap Left . peek . castPtr
+        OPT_ENDPT_KEEPALIVE_TIMEOUT -> fmap Left . peek . castPtr
+        OPT_ENDPT_URI -> fmap Right . peekCString . castPtr
+    
 
 
 -- | Endpoint options
 data EndpointOption =
     -- | Default send timeout for all new connections.
-    OPT_ENDPT_SEND_TIMEOUT 
+    OPT_ENDPT_SEND_TIMEOUT
 
     -- | How many receiver buffers on the endpoint. It is the max
     -- number of messages the CCI layer can receive without dropping.
-  | OPT_ENDPT_RECV_BUF_COUNT
+    | OPT_ENDPT_RECV_BUF_COUNT
 
     -- | How many send buffers on the endpoint. It is the max number of
     -- pending messages the CCI layer can buffer before failing or
     -- blocking (depending on reliability mode).
-  | OPT_ENDPT_SEND_BUF_COUNT
+    | OPT_ENDPT_SEND_BUF_COUNT
+    
+    -- | The \"keepalive\" timeout is to prevent a client from connecting
+    -- to a server and then the client disappears without the server
+    -- noticing. If the server never sends anything on the connection,
+    -- it'll never realize that the client is gone, but the connection
+    -- is still consuming resources. But note that keepalive timers
+    -- apply to both clients and servers.
+    --
+    -- The keepalive timeout is expressed in microseconds. If the
+    -- keepalive timeout value is set:
+    --
+    --  * If no traffic at all is received on a connection within the
+    --    keepalive timeout, the EVENT_KEEPALIVE_TIMEOUT event is
+    --    raised on that connection.
+    --
+    --  * The CCI implementation will automatically send control
+    --    hearbeats across an inactive (but still alive) connection to
+    --    reset the peer's keepalive timer before it times out.
+    -- 
+    -- If a keepalive event is raised, the keepalive timeout is set to
+    -- 0 (i.e., it must be \"re-armed\" before it will timeout again),
+    -- but the connection is *not* disconnected. Recovery decisions
+    -- are up to the application; it may choose to 'disconnect' the
+    -- connection, re-arm the keepalive timeout, etc.
+    | OPT_ENDPT_KEEPALIVE_TIMEOUT
 
-  -- | The \"keepalive\" timeout is to prevent a client from connecting
-  -- to a server and then the client disappears without the server
-  -- noticing. If the server never sends anything on the connection,
-  -- it'll never realize that the client is gone, but the connection
-  -- is still consuming resources. But note that keepalive timers
-  -- apply to both clients and servers.
-  --
-  -- The keepalive timeout is expressed in microseconds. If the
-  -- keepalive timeout value is set:
-  --
-  --  * If no traffic at all is received on a connection within the
-  --    keepalive timeout, the EVENT_KEEPALIVE_TIMEOUT event is
-  --    raised on that connection.
-  --
-  --  * The CCI implementation will automatically send control
-  --    hearbeats across an inactive (but still alive) connection to
-  --    reset the peer's keepalive timer before it times out.
-  -- 
-  -- If a keepalive event is raised, the keepalive timeout is set to
-  -- 0 (i.e., it must be \"re-armed\" before it will timeout again),
-  -- but the connection is *not* disconnected. Recovery decisions
-  -- are up to the application; it may choose to 'disconnect' the
-  -- connection, re-arm the keepalive timeout, etc.
-  | OPT_ENDPT_KEEPALIVE_TIMEOUT
-
+    -- | Retrieve the endpoint's URI used for listening for connection
+    -- requests. The application should never need to parse this URI.
+    --
+    -- 'getEndpointOpt' only.
+    | OPT_ENDPT_URI
+ 
 
 instance Enum EndpointOption where
 
@@ -1277,12 +1295,14 @@ instance Enum EndpointOption where
   toEnum #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} = OPT_ENDPT_RECV_BUF_COUNT
   toEnum #{const CCI_OPT_ENDPT_SEND_BUF_COUNT} = OPT_ENDPT_SEND_BUF_COUNT
   toEnum #{const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT} = OPT_ENDPT_KEEPALIVE_TIMEOUT
+  toEnum #{const CCI_OPT_ENDPT_URI} = OPT_ENDPT_URI
   toEnum v = error$ "EndpointOption toEnum: unknown option value: "++show v
 
   fromEnum OPT_ENDPT_SEND_TIMEOUT = #const CCI_OPT_ENDPT_SEND_TIMEOUT
   fromEnum OPT_ENDPT_RECV_BUF_COUNT = #const CCI_OPT_ENDPT_RECV_BUF_COUNT
   fromEnum OPT_ENDPT_SEND_BUF_COUNT = #const CCI_OPT_ENDPT_SEND_BUF_COUNT
   fromEnum OPT_ENDPT_KEEPALIVE_TIMEOUT = #const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT
+  fromEnum OPT_ENDPT_URI = #const CCI_OPT_ENDPT_URI
  
 
 
