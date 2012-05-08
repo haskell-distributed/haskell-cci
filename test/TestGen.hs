@@ -13,13 +13,11 @@ module TestGen
 import Control.Exception   ( catch, finally, IOException, evaluate, SomeException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
-import qualified Data.ByteString.Char8 as B ( pack )
 import Data.Function   ( on )
 import Data.List       ( sort, nub, sortBy, groupBy )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
-import System.Environment ( getEnvironment )
 import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..) )
 import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
@@ -27,7 +25,7 @@ import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
 import System.Random   ( Random(..), StdGen, mkStdGen )
 import Text.PrettyPrint (render,empty,vcat,text,char,($$),nest,(<>),hcat)
 
-import Commands        ( Command(..), Response(..)  )
+import Commands        ( Command(..), Response(..), Msg(..)  )
 
 testFolder :: FilePath
 testFolder = "dist" </> "build" </> "test-Worker"
@@ -60,29 +58,30 @@ type TestError = ([ProcCommand],[[Response]],String)
 --
 -- Several command sequences are generated. Sequences that make the property fail are
 -- yielded as part of the result.
-testProp :: TestConfig -> String -> ([ProcCommand] -> [[Response]] -> Bool) -> IO [TestError]
-testProp c propName f = go (mkStdGen 0) [] (nErrors c) (nTries c)
+testProp :: TestConfig -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO [TestError]
+testProp c f = go (mkStdGen 0) [] (nErrors c) (nTries c)
   where
     go _g errors _ 0 = return errors
     go _g errors 0 _ = return errors
     go g errors errCount tryCount = do
       (tr,g') <- genCommands c g
       let tr' = map snd tr
-      me <- testCommands propName tr' (nProcesses c) f
+      me <- testCommands tr' (nProcesses c) f
       case me of
-        Just err -> do err' <- shrink propName tr err (nProcesses c) f
+        Just err -> do err' <- shrink tr err (nProcesses c) f
                        go g' (err':errors) (errCount-1) (tryCount-1)
         Nothing  -> go g' errors errCount (tryCount-1)
 
 -- | Runs a sequence of commands and verifies that the given predicate holds on the results.
-testCommands :: String -> [ProcCommand] -> Int -> ([ProcCommand] -> [[Response]] -> Bool) -> IO (Maybe TestError)
-testCommands propName t nProc f = do
+testCommands :: [ProcCommand] -> Int -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO (Maybe TestError)
+testCommands t nProc f = do
       r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
                 ) `catch` \e -> return$ Left (t,[],show (e :: IOException))
       case r of
         Left err -> return$ Just err
-        Right rss -> if f t rss then return Nothing 
-                       else return$ Just (t,rss,"failed prop: "++propName)
+        Right rss -> let res = f t rss
+                      in if all snd res then return Nothing 
+                           else return$ Just (t,rss,"failed props: " ++ show (map fst (filter (not . snd) res)))
 
 
 -- | Provides the possible ways to reduce a command sequence.
@@ -91,14 +90,14 @@ shrinkCommands tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map 
 
 -- | Shrinks a command sequence as much as possible while preserving a faulty behavior
 -- with respect to the provided predicate.
-shrink :: String -> Interaction -> TestError -> Int -> ([ProcCommand] -> [[Response]] -> Bool) -> IO TestError
-shrink propName tr err nProc f = go (shrinkCommands tr)
+shrink :: Interaction -> TestError -> Int -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO TestError
+shrink tr err nProc f = go (shrinkCommands tr)
   where
     go []       = return err 
     go (tr':trs) = do
-        me <- testCommands propName (map snd tr') nProc f 
+        me <- testCommands (map snd tr') nProc f 
         case me of
-          Just err' -> shrink propName tr' err' nProc f
+          Just err' -> shrink tr' err' nProc f
           Nothing   -> go trs
 
 
@@ -114,12 +113,14 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
   where
     cciStatement (ConnectTo _ pd c _) = text "" $$ text ("connect(p,"++show c++",test_uri["++show pd++"]);")
     cciStatement (WaitConnection c) = text "" $$ text ("cci_connection_t* c"++show c++" = wait_connection(p,"++show c++");")
-    cciStatement (Send c si msg) = text "" $$ text ("send(p,c"++show c++","++show si++","++show msg++");")
+    cciStatement (Send c si msg) = text "" $$ text ("send(p,c"++show c++","++show si++","++show (msgLen msg)++");")
     cciStatement (Disconnect c) = text "" $$ text ("disconnect(p,c"++show c++");")
     cciStatement (WaitSendCompletion _ _) = text "" $$ text "poll_event(p);"
     cciStatement (WaitRecv _ _) = text "" $$ text "poll_event(p);"
     cciStatement (Accept _) = empty
     cciStatement cmd = text "" $$ text ("unknown command: " ++ show cmd ++";")
+
+    msgLen (Msg _ l) = l
 
     wrapProcCmds cs@((i,_):_) = 
              text ("void process"++show i++"(proc_t* p) {")
@@ -320,7 +321,7 @@ genInteraction c p0 p1 = do
                              then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1+mid,w1+mid-1..mid+1]  ] ,0) 
                              else ([],w1)
         rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (mid-1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (B.pack$ show mid)) : rest
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) 10)) : rest
 
 
 
@@ -360,11 +361,10 @@ launchWorker :: Int -> IO Process
 launchWorker pid = do
     -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini"),("LD_LIBRARY_PATH","cci/built/lib")])
     herr <- openBinaryFile ("worker-stderr"++show pid++".txt") WriteMode
-    env <- getEnvironment
     (Just hin,Just hout,_herr,phandle) <- createProcess CreateProcess 
                                   { cmdspec = RawCommand workerPath []
                                   , cwd = Nothing
-                                  , env = Just$ [("CCI_CONFIG","cci.ini")]++env
+                                  , env = Nothing
                                   , std_in = CreatePipe
                                   , std_out = CreatePipe
                                   , std_err = UseHandle herr

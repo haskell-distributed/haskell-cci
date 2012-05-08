@@ -15,7 +15,7 @@ void connect(proc_t* p,int cid,char* server_uri);
 
 void disconnect(proc_t* p,cci_connection_t* c); 
 
-void send(proc_t* p,cci_connection_t* c,long sid,char* csid);
+void send(proc_t* p,cci_connection_t* c,long sid,int l);
 
 void read_msg(proc_t* p,char msg[100]); 
 

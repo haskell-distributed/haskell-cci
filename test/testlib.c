@@ -103,6 +103,15 @@ cci_connection_t*  wait_connection(proc_t* p,int cid)
 }
 
 
+char* get_endpoint_name(cci_endpoint_t* ep) {
+    cci_opt_handle_t handle;
+    handle.endpoint = ep;
+    int len = 0;
+    char* name;
+	int ret = cci_get_opt(&handle, CCI_OPT_LEVEL_ENDPOINT, CCI_OPT_ENDPT_URI, (void *)&name, &len);
+    check_return("cci_get_opt",ep,ret,1);
+    return name;
+}
 
 void create_endpoint(cci_endpoint_t** endpoint) {
 
@@ -113,7 +122,7 @@ void create_endpoint(cci_endpoint_t** endpoint) {
 			cci_strerror(*endpoint,ret));
 		exit(EXIT_FAILURE);
 	}
-	printf("Opened %s\n", (*endpoint)->name);
+	printf("Opened %s\n", get_endpoint_name(*endpoint));
 
 }
 
@@ -144,11 +153,23 @@ void disconnect(proc_t* p,cci_connection_t* c) {
     write_msg(p,"");
 }
 
-void send(proc_t* p,cci_connection_t* c,long sid,char* csid) {
+void send(proc_t* p,cci_connection_t* c,long sid,int l) {
     char buf[100];
     read_msg(p,buf);
 
+    char* csid = (char*)malloc(l);
+    memset(csid,'\0',l);
+    if (l>0) 
+        csid[0] = ' ';
+    int n=sprintf(buf,"%ld",sid);
+    int i=1;
+    while(i<l) {
+        strncpy(&csid[i],buf,i+n<l?n:l-i);
+        i+=n;
+    }
+
     int ret = cci_send(c,csid,strlen(csid)+1,(void*)sid,0);
+    free(csid);
 	check_return("cci_send", c->endpoint, ret, 1);
 
     write_msg(p,"");
@@ -205,7 +226,8 @@ int spawn(proc_t** p,int cci_pid) {
 
         init();
         create_endpoint(&(*p)->endpoint);
-        write_msg(*p,(*p)->endpoint->name);
+
+        write_msg(*p,get_endpoint_name((*p)->endpoint));
 
     } else {
         close(fdi[0]);

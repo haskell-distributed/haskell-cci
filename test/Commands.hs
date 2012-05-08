@@ -6,7 +6,6 @@
 
 module Commands where
 
-import Data.ByteString       ( ByteString )
 import Data.Word             ( Word64 )
 import Foreign.Ptr           ( WordPtr )
 import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout, hFlush, hReady)
@@ -17,7 +16,7 @@ import Network.CCI           ( Status(..) )
 data Command =
       ConnectTo String Int WordPtr (Maybe Word64) -- ^ @ConnectTo uri process_id connection_id timeout@ process id is 
                                                   -- only used on the test driver side
-    | Send WordPtr WordPtr ByteString             -- ^ @Send connection_id send_id "send_id"@ message 
+    | Send WordPtr WordPtr Msg                    -- ^ @Send connection_id send_id "send_id"@ message 
     | Accept WordPtr                              -- ^ @Accept connection_id@
     | Reject WordPtr                              -- ^ @Reject connection_id@
     | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
@@ -29,7 +28,7 @@ data Command =
 
 data Response =
       ConnectAccepted WordPtr                     -- ^ Holds the connection identifier.
-    | Recv WordPtr ByteString                     -- ^ Holds the connection identifier and the message. 
+    | Recv WordPtr Msg                            -- ^ Holds the connection identifier and the message. 
     | SendCompletion WordPtr WordPtr Status       -- ^ Holds the connection identifier the send identifier and the status.
     | Error String
     | ReqAccepted WordPtr                         -- ^ Holds the connection identifier.
@@ -41,6 +40,9 @@ data Response =
     | KeepAliveTimedOut WordPtr                   -- ^ Hodls the connection identifier.
     | EndpointDeviceFailed
     | Idle
+  deriving (Show, Read, Eq)
+
+data Msg = Msg WordPtr Int  -- | Message_id and length in bytes to append to the message id.
   deriving (Show, Read, Eq)
 
 

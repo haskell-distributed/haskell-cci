@@ -21,11 +21,13 @@
 -- See test/Props.hs for an example of driver process.
 
 import Prelude hiding          ( catch )
+import Control.Arrow           ( first )
 import Control.Exception       ( catch, SomeException )
 import Control.Monad           ( when )
-import Data.ByteString as B    ( ByteString, concat )
+import Data.ByteString         ( ByteString )
+import qualified Data.ByteString as B    ( concat )
 import Data.ByteString.Lazy    ( toChunks, fromChunks )
-import qualified Data.ByteString.Char8 as B8 ( unpack )
+import qualified Data.ByteString.Char8 as B8 ( unpack, pack )
 import Data.Binary             ( decode, encode )
 import Data.Char               ( isDigit )
 import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
@@ -43,7 +45,7 @@ import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttri
                                )
 
 import Commands                ( initCommands,readCommand
-                               , Command(..)
+                               , Command(..), Msg(..)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
                                          , EndpointDeviceFailed, Idle
@@ -87,7 +89,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 
            Send i ctx bs -> do
                c <- getConn' i rcm
-               send c bs ctx []
+               send c (msgToByteString bs) ctx []
                sendResponse Idle >> processCommands rcm rcrs ep
 
            WaitConnection cid -> do
@@ -150,9 +152,9 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                       cid   <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
                       bs' <- unsafePackEventBytes bs
-                      let ctx = read$ takeWhile isDigit$ B8.unpack bs' :: WordPtr
+                      let m@(Msg ctx _) = byteStringToMsg bs'
                       seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
-                      sendResponse (Recv cid bs')
+                      sendResponse (Recv cid m)
 
               EvConnectRequest e bs cattrs -> do
                       bs' <- unsafePackEventBytes bs
@@ -168,6 +170,13 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 -- Yields the first offending result.
 -- loopWhileM :: (a -> Bool) -> IO a -> IO a
 -- loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
+
+byteStringToMsg :: ByteString -> Msg
+byteStringToMsg bs = let (ctx,rest) = first read$ break (not . isDigit)$ B8.unpack bs :: (WordPtr,String)
+                      in Msg ctx (length rest)
+
+msgToByteString :: Msg -> ByteString
+msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take l (' ' : concat (repeat n))
 
 
 -- Map of connection requests
