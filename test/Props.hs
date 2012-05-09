@@ -1,5 +1,5 @@
 
-import Control.Monad   ( when )
+import Control.Monad   ( when, forM_ )
 import System.Exit     ( exitFailure )
 
 import TestGen         ( testProp, defaultTestConfig, runCommands, Command(..)
@@ -8,7 +8,7 @@ import TestGen         ( testProp, defaultTestConfig, runCommands, Command(..)
 
 
 main :: IO ()
-main = writeCTest -- singleTest -- props
+main = props -- writeCTest -- singleTest -- props
 
 props :: IO ()
 props = do
@@ -18,7 +18,12 @@ props = do
                   )
                 ]
     mapM_ print errs
-    when (not (null errs)) exitFailure
+    let cfilename :: Int -> String
+        cfilename i = "t"++show i++".c"
+    forM_ (zip errs [0..])$ \((s,_,_),i) -> writeFile (cfilename i)$ generateCTest s
+    when (not (null errs))$ do
+       putStrLn$ "Test programs have been written to " ++ show (map cfilename [0..length errs-1])
+       exitFailure
   where
     isSendCommand (Send _ _ _) = True
     isSendCommand _ = False
