@@ -68,7 +68,7 @@ void check_msg(const char* ptr,uint32_t len) {
     if (ret==1)
 	    fprintf(stderr, "when reading identifier (pos: %d, len: %d).\n",pos,len);
     else
-	    fprintf(stderr, "when reading message body %d %d %c.\n",i,ptr[i],ptr[i]);
+	    fprintf(stderr, "when reading message body (pos: %d, ptr[pos]: %d, %c).\n",i,ptr[i],ptr[i]);
 	exit(EXIT_FAILURE);
 }
 
@@ -192,23 +192,22 @@ void disconnect(proc_t* p,cci_connection_t* c) {
     write_msg(p,"");
 }
 
-void send(proc_t* p,cci_connection_t* c,long sid,int l) {
+void send(proc_t* p,cci_connection_t* c,long sid,int len) {
     char buf[100];
     read_msg(p,buf);
 
     int n=sprintf(buf,"%ld",sid);
-    char* csid = (char*)malloc(n+l+1);
-    csid[n+l] = '\0';
-    if (l>0)
+    char* csid = (char*)malloc(len);
+    if (n<len)
         csid[n] = ' ';
     strncpy(csid,buf,n);
-    int i=1;
-    while(i<l) {
-        strncpy(&csid[n+i],buf,n+i<=l?n:l-i);
+    int i=1+n;
+    while(i<len) {
+        strncpy(&csid[i],buf,n+i<=len?n:len-i);
         i+=n;
     }
 
-    int ret = cci_send(c,csid,strlen(csid),(void*)sid,0);
+    int ret = cci_send(c,csid,len,(void*)sid,0);
     free(csid);
 	check_return("cci_send", c->endpoint, ret, 1);
 

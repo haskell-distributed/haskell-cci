@@ -42,7 +42,7 @@ data Response =
     | Idle
   deriving (Show, Read, Eq)
 
-data Msg = Msg WordPtr Int  -- | Message_id and length in bytes to append to the message id.
+data Msg = Msg WordPtr Int  -- | Message_id and length of the message.
   deriving (Show, Read, Eq)
 
 

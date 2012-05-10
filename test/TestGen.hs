@@ -50,8 +50,8 @@ defaultTestConfig = TestConfig
     , nSends     = 1
     , nTries     = 100
     , nErrors    = 2
-	, nMinMsgLen = 1
-	, nMaxMsgLen = 1
+	, nMinMsgLen = 10
+	, nMaxMsgLen = 10
     }
 
 type TestError = ([ProcCommand],[[Response]],String)

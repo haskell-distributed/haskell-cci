@@ -24,7 +24,7 @@ import Prelude hiding          ( catch )
 import Control.Exception       ( catch, SomeException )
 import Control.Monad           ( when )
 import Data.ByteString         ( ByteString )
-import qualified Data.ByteString as B    ( concat )
+import qualified Data.ByteString as B    ( concat, length )
 import Data.ByteString.Lazy    ( toChunks, fromChunks )
 import qualified Data.ByteString.Char8 as B8 ( unpack, pack )
 import Data.Binary             ( decode, encode )
@@ -173,14 +173,14 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 byteStringToMsg :: ByteString -> Msg
 byteStringToMsg bs = let (ctxs,rest) = break (not . isDigit)$ B8.unpack bs
                       in if not (null ctxs) && wellFormed ctxs rest
-                           then Msg (read ctxs) (length rest)
-                           else error$ "error parsing message "++ctxs++": "++rest
+                           then Msg (read ctxs) (B.length bs)
+                           else error$ "error parsing message "++ctxs++" (length: "++show (B.length bs)++"): "++rest
   where
     wellFormed ctx (' ':rs) = and$ zipWith (==) (cycle ctx) rs
     wellFormed _ _ = False
 
 msgToByteString :: Msg -> ByteString
-msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take l (' ' : cycle n)
+msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take (l-length n) (' ' : cycle n)
 
 
 -- Map of connection requests
