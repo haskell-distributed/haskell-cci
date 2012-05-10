@@ -12,11 +12,11 @@ main = props -- writeCTest -- singleTest -- props
 
 props :: IO ()
 props = do
-    errs <- testProp (defaultTestConfig { nSends=2
+    errs <- testProp (defaultTestConfig { nSends=3
                                         , nTries=200
                                         , nProcesses=2
-                                        , nMinMsgLen=10
-                                        , nMaxMsgLen=30
+                                        , nMinMsgLen=200
+                                        , nMaxMsgLen=300
                                         })$ \cmds rs ->
                 [ ( "sends equal completions"
                   , length (filter (isSendCommand . snd) cmds) == length (concatMap (filter isSendCompletion) rs) 

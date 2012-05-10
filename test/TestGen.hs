@@ -14,7 +14,7 @@ import Control.Exception   ( catch, finally, IOException, evaluate, SomeExceptio
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import Data.Function   ( on )
-import Data.List       ( sort, nub, sortBy, groupBy )
+import Data.List       ( sort, nub, sortBy, groupBy, intersect )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
@@ -26,6 +26,7 @@ import System.Random   ( Random(..), StdGen, mkStdGen )
 import Text.PrettyPrint (render,empty,vcat,text,char,($$),nest,(<>),hcat)
 
 import Commands        ( Command(..), Response(..), Msg(..)  )
+
 
 testFolder :: FilePath
 testFolder = "dist" </> "build" </> "test-Worker"
@@ -40,8 +41,8 @@ data TestConfig = TestConfig
     , nSends     :: Int -- ^ Number of sends in each interaction
     , nTries     :: Int -- ^ Number of tests to run 
     , nErrors    :: Int -- ^ Number of errors to collect before stopping
-	, nMinMsgLen :: Int -- ^ Minimum length of active messages
-	, nMaxMsgLen :: Int -- ^ Maximum length of active messages
+    , nMinMsgLen :: Int -- ^ Minimum length of active messages
+    , nMaxMsgLen :: Int -- ^ Maximum length of active messages
     }
 
 defaultTestConfig :: TestConfig
@@ -50,8 +51,8 @@ defaultTestConfig = TestConfig
     , nSends     = 1
     , nTries     = 100
     , nErrors    = 2
-	, nMinMsgLen = 10
-	, nMaxMsgLen = 10
+    , nMinMsgLen = 10
+    , nMaxMsgLen = 10
     }
 
 type TestError = ([ProcCommand],[[Response]],String)
@@ -90,7 +91,24 @@ testCommands t nProc f = do
 
 -- | Provides the possible ways to reduce a command sequence.
 shrinkCommands :: Interaction -> [Interaction]
-shrinkCommands tr = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+shrinkCommands tr =
+    let is = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+     in if null is then filter (not . null) [ removeSend tr ]
+          else is
+  where
+    removeSend tr = 
+        case break isSend tr of
+          (bfs,(_,(ps,Send c sid _)):rs) -> 
+               bfs ++ filter (\cm -> not (isWaitRecv ps c sid cm) && not (isWaitSendCompletion ps c sid cm)) rs
+          _ -> []
+
+    isSend (_,(_,Send _ _ _)) = True
+    isSend _                  = False
+
+    isWaitSendCompletion ps c sid (_,(ps',WaitSendCompletion c' sid')) = c==c' && sid==sid' && not (null (intersect ps ps'))
+    isWaitSendCompletion _ _ _ _ = False
+    isWaitRecv ps c sid (_,(ps',WaitRecv c' sid')) = c==c' && sid==sid' && null (intersect ps ps')
+    isWaitRecv _ _ _ _ = False
 
 -- | Shrinks a command sequence as much as possible while preserving a faulty behavior
 -- with respect to the provided predicate.
