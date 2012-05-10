@@ -96,10 +96,10 @@ shrinkCommands tr =
      in if null is then filter (not . null) [ removeSend tr ]
           else is
   where
-    removeSend tr = 
-        case break isSend tr of
+    removeSend tr = reverse$
+        case break isSend (reverse tr) of
           (bfs,(_,(ps,Send c sid _)):rs) -> 
-               bfs ++ filter (\cm -> not (isWaitRecv ps c sid cm) && not (isWaitSendCompletion ps c sid cm)) rs
+               filter (\cm -> not (isWaitRecv ps c sid cm) && not (isWaitSendCompletion ps c sid cm)) bfs ++ rs
           _ -> []
 
     isSend (_,(_,Send _ _ _)) = True
@@ -318,7 +318,7 @@ genInteraction c p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid p0 p1 0 0 (nSends c)
+    sends <- genSends cid p0 p1 0 0 0
     return$ (i,([p1],Accept cid)):
        (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : sends
                          )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
@@ -329,9 +329,9 @@ genInteraction c p0 p1 = do
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
     genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends cid p0 p1 w0 w1 0 = return$ 
-               [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0,w0-1..1] ]
-               ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1,w1-1..1]  ]
+    genSends cid p0 p1 w0 w1 mid | mid >= nSends c = return$ 
+               [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
+               ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1] ]
                ++ [ ([p0],Disconnect cid) ]
     genSends cid p0 p1 w0 w1 mid = do
         insertWaits0 <- getRandom 
@@ -339,12 +339,12 @@ genInteraction c p0 p1 = do
         msgLen <- getRandomR (nMinMsgLen c,nMaxMsgLen c) 
 
         let (waits0,w0') = if insertWaits0 
-                             then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0+mid,w0+mid-1..mid+1] ] ,0) 
+                             then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ], mid) 
                              else ([],w0)
             (waits1,w1') = if insertWaits1 
-                             then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1+mid,w1+mid-1..mid+1]  ] ,0) 
+                             then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1]  ] ,mid) 
                              else ([],w1)
-        rest <- genSends cid p0 p1 (w0'+1) (w1'+1) (mid-1)
+        rest <- genSends cid p0 p1 w0' w1' (mid+1)
         return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
 
 
