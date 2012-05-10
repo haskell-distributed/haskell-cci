@@ -21,7 +21,6 @@
 -- See test/Props.hs for an example of driver process.
 
 import Prelude hiding          ( catch )
-import Control.Arrow           ( first )
 import Control.Exception       ( catch, SomeException )
 import Control.Monad           ( when )
 import Data.ByteString         ( ByteString )
@@ -172,11 +171,16 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 -- loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
 
 byteStringToMsg :: ByteString -> Msg
-byteStringToMsg bs = let (ctx,rest) = first read$ break (not . isDigit)$ B8.unpack bs :: (WordPtr,String)
-                      in Msg ctx (length rest)
+byteStringToMsg bs = let (ctxs,rest) = break (not . isDigit)$ B8.unpack bs
+                      in if not (null ctxs) && wellFormed ctxs rest
+                           then Msg (read ctxs) (length rest)
+                           else error$ "error parsing message "++ctxs++": "++rest
+  where
+    wellFormed ctx (' ':rs) = and$ zipWith (==) (cycle ctx) rs
+    wellFormed _ _ = False
 
 msgToByteString :: Msg -> ByteString
-msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take l (' ' : concat (repeat n))
+msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take l (' ' : cycle n)
 
 
 -- Map of connection requests

@@ -34,6 +34,44 @@ void check_return(char *func, cci_endpoint_t* ep, int ret, int need_exit) {
 	return;
 }
 
+void check_msg(const char* ptr,uint32_t len) {
+    // Read a numeric identifier
+    int pos = 0;
+    while (pos<len && '0'<=ptr[pos] && ptr[pos]<='9')
+        pos+=1;
+
+    int ret=0;
+    if (pos==0 || pos<len && ptr[pos]!=' ') {
+        ret = 1;
+        goto failed;
+    }
+
+    // Read the message body
+    int i=pos+1;
+    while (i<len) {
+        int j=0;
+        while(j<pos && i<len && ptr[j]==ptr[i]) {
+            i+=1;
+            j+=1;
+        }
+        if (j<pos && i<len) {
+            ret = 2;
+            goto failed;
+        }
+    }
+
+    return;
+
+  failed:
+
+	fprintf(stderr, "check_msg() failed ");
+    if (ret==1)
+	    fprintf(stderr, "when reading identifier (pos: %d, len: %d).\n",pos,len);
+    else
+	    fprintf(stderr, "when reading message body %d %d %c.\n",i,ptr[i],ptr[i]);
+	exit(EXIT_FAILURE);
+}
+
 void handle_event(proc_t* p,cci_event_t* event) {
 	int pid = p->cci_pid;
     switch(event->type) {
@@ -51,6 +89,7 @@ void handle_event(proc_t* p,cci_event_t* event) {
            break;
        case CCI_EVENT_RECV:
            fprintf(stderr,"process %d: CCI_EVENT_RECV\n",pid);
+           check_msg((const char*)event->recv.ptr,event->recv.len);
            break;
        case CCI_EVENT_SEND:
            fprintf(stderr,"process %d: CCI_EVENT_SEND\n",pid);
@@ -157,18 +196,19 @@ void send(proc_t* p,cci_connection_t* c,long sid,int l) {
     char buf[100];
     read_msg(p,buf);
 
-    char* csid = (char*)malloc(l);
-    memset(csid,'\0',l);
-    if (l>0) 
-        csid[0] = ' ';
     int n=sprintf(buf,"%ld",sid);
+    char* csid = (char*)malloc(n+l+1);
+    csid[n+l] = '\0';
+    if (l>0)
+        csid[n] = ' ';
+    strncpy(csid,buf,n);
     int i=1;
     while(i<l) {
-        strncpy(&csid[i],buf,i+n<l?n:l-i);
+        strncpy(&csid[n+i],buf,n+i<=l?n:l-i);
         i+=n;
     }
 
-    int ret = cci_send(c,csid,strlen(csid)+1,(void*)sid,0);
+    int ret = cci_send(c,csid,strlen(csid),(void*)sid,0);
     free(csid);
 	check_return("cci_send", c->endpoint, ret, 1);
 
