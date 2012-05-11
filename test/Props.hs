@@ -15,8 +15,9 @@ props = do
     errs <- testProp (defaultTestConfig { nSends=3
                                         , nTries=200
                                         , nProcesses=2
-                                        , nMinMsgLen=200
-                                        , nMaxMsgLen=300
+                                        , nMinMsgLen=10
+                                        , nMaxMsgLen=10
+                                        , nPerProcessInteraction=3
                                         })$ \cmds rs ->
                 [ ( "sends equal completions"
                   , length (filter (isSendCommand . snd) cmds) == length (concatMap (filter isSendCompletion) rs) 

@@ -10,6 +10,7 @@ module TestGen
     , Command(..),Msg(..), TestError, testCommands, ProcCommand, generateCTest
     ) where
 
+import Control.Arrow       ( second )
 import Control.Exception   ( catch, finally, IOException, evaluate, SomeException )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
@@ -43,6 +44,7 @@ data TestConfig = TestConfig
     , nErrors    :: Int -- ^ Number of errors to collect before stopping
     , nMinMsgLen :: Int -- ^ Minimum length of active messages
     , nMaxMsgLen :: Int -- ^ Maximum length of active messages
+    , nPerProcessInteraction :: Int -- ^ Number of interactions per process
     }
 
 defaultTestConfig :: TestConfig
@@ -53,6 +55,7 @@ defaultTestConfig = TestConfig
     , nErrors    = 2
     , nMinMsgLen = 10
     , nMaxMsgLen = 10
+    , nPerProcessInteraction = 1
     }
 
 type TestError = ([ProcCommand],[[Response]],String)
@@ -221,9 +224,26 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
 
 -- | Takes the amount of processes, and generates commands for an interaction among them.
 genCommands :: TestConfig -> StdGen -> IO (Interaction,StdGen)
-genCommands c g = return$ runCommandGenDefault g$ 
-               mapM (uncurry (genInteraction c)) (zip (nProcesses c-1:[0..]) [0..nProcesses c-1])
-                 >>= foldM mergeI []
+genCommands c g = return$ runCommandGenDefault g$
+               (replicateM (nPerProcessInteraction c)$ permute [0..nProcesses c-1])
+               >>= mapM (uncurry (genInteraction c)) . concat . map (zip [0..])
+               >>= foldM mergeI []
+  where
+    permute :: [a] -> CommandGen [a]
+    permute ls = go (length ls) ls
+      where
+        go _ [] = return []
+        go _ [x] = return [x]
+        go len (x:xs) = do
+             i <- getRandomR (0,len-2)
+             let (x',xs') = swapAt i x xs
+             xs'' <- go (len-1) xs'
+             return$ x' : xs''
+
+        swapAt :: Int -> a -> [a] -> (a,[a])
+        swapAt 0 y (x:xs) = (x,y:xs)
+        swapAt i y (x:xs) = second (x:)$ swapAt (i-1) y xs
+        swapAt _ y [] = (y,[])
 
 -- | An interaction is a list of commands for a given process.
 -- Because an interaction might be the result of merging simpler
