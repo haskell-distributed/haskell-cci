@@ -18,7 +18,7 @@ import Network.CCI           ( withCCI, withEndpoint, endpointURI, accept, Endpo
                              , pollWithEventData, EventData(..), send, Connection
                              , connect, ConnectionAttributes(..), connectionMaxSendSize
                              , createRMARemoteHandle, RMARemoteHandle, rmaWrite
-                             , withConnectionRMALocalHandle, rmaHandle2ByteString
+                             , withRMALocalHandle, rmaHandle2ByteString, RMA_MODE(..)
                              , unsafePackEventBytes, packEventBytes, disconnect
                              )
 import Numeric               ( fromRat )
@@ -39,7 +39,7 @@ defaultOptions = Options
   { oServerURI = Nothing
   , oIsServer = False
   , oWarmup = 1024
-  , oIters = 512*1024
+  , oIters = 16*1024
   , oRMA = Nothing
   }
 
@@ -66,6 +66,9 @@ main = do
             else goClient ep o
      else
       putStrLn$ unlines$ errors ++ [ usageInfo header options ]
+    putStrLn "type something"
+    void$ getLine
+    putStrLn "type something else"
   where 
     header = "Usage: pingpong [OPTION...]"
 
@@ -90,7 +93,7 @@ goServer ep _o = do
       AM     -> connectionMaxSendSize conn >>= goServer'
       RMA sz -> do 
         allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
-          withConnectionRMALocalHandle conn (cbuf,fromIntegral sz)$ \lh -> do
+          withRMALocalHandle ep (cbuf,fromIntegral sz) RMA_READ_WRITE$ \lh -> do
             send conn (rmaHandle2ByteString lh) 0 []
             goServer' sz
   where
@@ -125,7 +128,7 @@ goClient ep o = do
       unsafePackCStringLen (cbuf,sz) >>= \sbuf ->
         case mrmah of
           Nothing -> goClient' conn sbuf Nothing
-          Just rh -> withConnectionRMALocalHandle conn (cbuf,sz) (goClient' conn sbuf . Just . flip (,) rh)
+          Just rh -> withRMALocalHandle ep (cbuf,sz) RMA_READ_WRITE (goClient' conn sbuf . Just . flip (,) rh)
   where
     goClient' conn sbuf mrmahs = do
       putStrLn "Bytes\t\tLatency (one-way)\tThroughput"

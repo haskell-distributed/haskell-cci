@@ -51,11 +51,10 @@ module Network.CCI
   , SEND_FLAG(..)
   -- ** RMA
   -- $rma
-  , rmaEndpointRegister
-  , rmaConnectionRegister 
+  , rmaRegister
   , rmaDeregister 
-  , withEndpointRMALocalHandle 
-  , withConnectionRMALocalHandle
+  , withRMALocalHandle 
+  , RMA_MODE(..)
   , rmaRead
   , rmaWrite
   , RMA_FLAG(..)
@@ -713,28 +712,33 @@ instance Enum SEND_FLAG where
 --
 -- May throw driver-specific errors.
 --
-rmaEndpointRegister :: Endpoint -> CStringLen -> IO RMALocalHandle
-rmaEndpointRegister (Endpoint pend) (cbuf,clen) = alloca$ \p ->
-    cci_rma_register pend nullPtr cbuf (fromIntegral clen) p
+rmaRegister :: Endpoint -> CStringLen -> RMA_MODE -> IO RMALocalHandle
+rmaRegister (Endpoint pend) (cbuf,clen) m = alloca$ \p ->
+    cci_rma_register pend cbuf (fromIntegral clen) (fromIntegral (fromEnum m)) p
       >>= cci_check_exception >> peek p
 
-foreign import ccall unsafe cci_rma_register :: Ptr EndpointV -> Ptr ConnectionV 
-                                             -> Ptr CChar -> Word64 -> Ptr RMALocalHandle -> IO CInt
+foreign import ccall unsafe cci_rma_register :: Ptr EndpointV 
+                                             -> Ptr CChar -> Word64 -> CInt -> Ptr RMALocalHandle -> IO CInt
+
+-- | Mode for registered handles.
+data RMA_MODE =
+      RMA_READ        -- | Handle can be read by other endpoints.
+    | RMA_WRITE       -- | Handle can be written by other endpoints.
+    | RMA_READ_WRITE  -- | Handle can be both read and written by other endpoints.
 
 
--- | Like 'rmaEndpointRegister' but registers memory for RMA operations on a specific connection instead.
---
--- May throw:
---
---  * 'EINVAL' if the connection is unreliable or the register buffer has length 0.
---
---  * driver-specific errors.
---
-rmaConnectionRegister :: Connection -> CStringLen -> IO RMALocalHandle
-rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p -> do
-    pep <- #{peek cci_connection_t, endpoint} pconn
-    cci_rma_register pep pconn cbuf (fromIntegral clen) p
-      >>= cci_check_exception >> peek p
+instance Enum RMA_MODE where
+
+  fromEnum RMA_READ = #const CCI_FLAG_READ
+  fromEnum RMA_WRITE = #const CCI_FLAG_WRITE
+  fromEnum RMA_READ_WRITE = #{const CCI_FLAG_READ} .|. #{const CCI_FLAG_WRITE}
+
+  toEnum #{const CCI_FLAG_READ} = RMA_READ
+  toEnum #{const CCI_FLAG_WRITE} = RMA_WRITE
+  toEnum i | i == #{const CCI_FLAG_READ} .|. #{const CCI_FLAG_WRITE} = RMA_READ_WRITE
+  toEnum i = error$ "RMA_MODE_FLAG toEnum: unknown value: "++show i
+
+
 
 
 -- | Deregisters memory.
@@ -744,22 +748,18 @@ rmaConnectionRegister (Connection pconn) (cbuf,clen) = alloca$ \p -> do
 --
 -- May throw driver-specific errors.
 --
-rmaDeregister :: RMALocalHandle -> IO ()
-rmaDeregister (RMALocalHandle w64) = cci_rma_deregister w64 >>= cci_check_exception
+rmaDeregister :: Endpoint -> RMALocalHandle -> IO ()
+rmaDeregister (Endpoint ep) (RMALocalHandle w64) = cci_rma_deregister ep w64 >>= cci_check_exception
 
-foreign import ccall unsafe cci_rma_deregister :: Word64 -> IO CInt
+foreign import ccall unsafe cci_rma_deregister :: Ptr EndpointV -> Word64 -> IO CInt
 
 
--- | Wraps an IO operation with calls to 'rmaEndpointRegister' and 'rmaDeregister'.
+-- | Wraps an IO operation with calls to 'rmaRegister' and 'rmaDeregister'.
 --
 -- This function makes sure to call 'rmaDeregister' even in the presence of errors.
 --
-withEndpointRMALocalHandle :: Endpoint -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
-withEndpointRMALocalHandle e cs = bracket (rmaEndpointRegister e cs) rmaDeregister
-
--- | Like 'withEndpointRMAHandle' but uses 'rmaConnectionRegister' instead of 'rmaEndpointRegister'.
-withConnectionRMALocalHandle :: Connection -> CStringLen -> (RMALocalHandle -> IO a) -> IO a
-withConnectionRMALocalHandle c cs = bracket (rmaConnectionRegister c cs) rmaDeregister
+withRMALocalHandle :: Endpoint -> CStringLen -> RMA_MODE -> (RMALocalHandle -> IO a) -> IO a
+withRMALocalHandle e cs m = bracket (rmaRegister e cs m) (rmaDeregister e)
 
 
 -- | Transfers data in remote memory to local memory.
