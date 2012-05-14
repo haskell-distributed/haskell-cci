@@ -66,9 +66,6 @@ main = do
             else goClient ep o
      else
       putStrLn$ unlines$ errors ++ [ usageInfo header options ]
-    putStrLn "type something"
-    void$ getLine
-    putStrLn "type something else"
   where 
     header = "Usage: pingpong [OPTION...]"
 
