@@ -1207,13 +1207,13 @@ setEndpointOpt (Endpoint pend) eo v = allocaBytes #{size cci_opt_handle_t}$ \ph 
 --
 getConnectionOpt :: Connection -> ConnectionOption -> IO Word32
 getConnectionOpt (Connection pconn) co = allocaBytes #{size cci_opt_handle_t}$ \ph ->
-    alloca$ \pv -> alloca$ \pl -> do
+    alloca$ \pv -> do
       #{poke cci_opt_handle_t, connection} ph pconn
-      cci_get_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv pl
+      cci_get_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv
         >>= cci_check_exception
       peek pv >>= peek . castPtr
 
-foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()) -> Ptr CInt -> IO CInt
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()) -> IO CInt
 
 
 -- | Retrieves an endpoint option value.
@@ -1226,9 +1226,9 @@ foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()
 --
 getEndpointOpt :: Endpoint -> EndpointOption -> IO (Either Word32 String)
 getEndpointOpt (Endpoint pend) eo = allocaBytes #{size cci_opt_handle_t}$ \ph ->
-    alloca$ \pv -> alloca$ \pl -> do
+    alloca$ \pv -> do
       #{poke cci_opt_handle_t, endpoint} ph pend
-      cci_get_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv pl
+      cci_get_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv
         >>= cci_check_exception
       peek pv >>= peekE eo
   where

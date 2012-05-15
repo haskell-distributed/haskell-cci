@@ -80,11 +80,11 @@ void handle_event(proc_t* p,cci_event_t* event) {
 		   cci_accept(event,((void**)event->request.data_ptr)[0]);
            break;
        case CCI_EVENT_CONNECT:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT\n",pid);
+           fprintf(stderr,"process %d: CCI_EVENT_CONNECT (status=%s)\n",pid,cci_strerror(p->endpoint,event->connect.status));
            p->conns[(int64_t)event->connect.context] = event->connect.connection;
            break;
        case CCI_EVENT_ACCEPT:
-           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT\n",pid);
+           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT (status=%s)\n",pid,cci_strerror(p->endpoint,event->accept.status));
            p->conns[(int64_t)event->connect.context] = event->accept.connection;
            break;
        case CCI_EVENT_RECV:
@@ -92,7 +92,7 @@ void handle_event(proc_t* p,cci_event_t* event) {
            check_msg((const char*)event->recv.ptr,event->recv.len);
            break;
        case CCI_EVENT_SEND:
-           fprintf(stderr,"process %d: CCI_EVENT_SEND\n",pid);
+           fprintf(stderr,"process %d: CCI_EVENT_SEND (status=%s)\n",pid,cci_strerror(p->endpoint,event->send.status));
            break;
        default:
            fprintf(stderr,"process %d: aborting with received event: %d\n",pid,event->type);
@@ -145,9 +145,8 @@ cci_connection_t*  wait_connection(proc_t* p,int cid)
 char* get_endpoint_name(cci_endpoint_t* ep) {
     cci_opt_handle_t handle;
     handle.endpoint = ep;
-    int len = 0;
     char* name;
-	int ret = cci_get_opt(&handle, CCI_OPT_LEVEL_ENDPOINT, CCI_OPT_ENDPT_URI, (void *)&name, &len);
+	int ret = cci_get_opt(&handle, CCI_OPT_LEVEL_ENDPOINT, CCI_OPT_ENDPT_URI, (void *)&name);
     check_return("cci_get_opt",ep,ret,1);
     return name;
 }
