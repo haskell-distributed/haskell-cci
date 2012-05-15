@@ -9,18 +9,18 @@
 
 #include "cci.h"
 #include "plugins/base/public.h"
-#include "plugins/core/core.h"
+#include "plugins/ctp/ctp.h"
 
-cci_plugin_core_t *cci_core = NULL;
-lt_dlhandle cci_plugins_core_handle;
+cci_plugin_ctp_t *cci_ctp = NULL;
+lt_dlhandle cci_plugins_ctp_handle;
 
-extern cci_plugin_core_t cci_core_verbs_plugin;
+extern cci_plugin_ctp_t cci_ctp_verbs_plugin;
 struct cci_plugin_handle *cci_all_plugins = NULL;
 
-int cci_plugins_core_open(void) {
+int cci_plugins_ctp_open(void) {
 
     cci_all_plugins = (struct cci_plugin_handle*)malloc(2*sizeof(struct cci_plugin_handle));
-    cci_all_plugins->plugin = (cci_plugin_t*)&cci_core_verbs_plugin;
+    cci_all_plugins->plugin = (cci_plugin_t*)&cci_ctp_verbs_plugin;
     cci_all_plugins->handle = NULL;
     cci_all_plugins->init_status = 0;
 
@@ -28,6 +28,6 @@ int cci_plugins_core_open(void) {
     cci_all_plugins[1].handle = NULL;
     cci_all_plugins[1].init_status = 0;
 
-    cci_core = &cci_core_verbs_plugin;
+    cci_ctp = &cci_ctp_verbs_plugin;
     return CCI_SUCCESS;
 }
