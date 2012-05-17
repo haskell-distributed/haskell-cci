@@ -107,7 +107,6 @@ void get_msg_id(const char* ptr,uint32_t len,char* res) {
 void handle_event(proc_t* p,cci_event_t* event) {
 	int pid = p->cci_pid;
     char msg_id[100];
-    int_list_t* e;
     switch(event->type) {
        case CCI_EVENT_CONNECT_REQUEST:
            fprintf(stderr,"process %d: CCI_EVENT_CONNECT_REQUEST (conn=%d)\n",pid,((void**)event->request.data_ptr)[0]);
