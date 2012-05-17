@@ -9,8 +9,28 @@
 #include <time.h>
 
 #include "cci.h"
+#include "sglib.h"
 
 #include "testlib.h"
+
+typedef struct _int_list {
+    int v;
+    struct _int_list* next;
+} int_list_t;
+
+int_list_t* mk_int_list_t_node(int v) {
+    int_list_t* n=malloc(sizeof(int_list_t));
+    n->v = v;
+    n->next = NULL;
+    return n;
+}
+
+void free_int_list_t_node(int_list_t* n) { free(n); }
+
+#define INT_LIST_COMPARATOR(e1, e2) (e1->v - e2->v)
+
+SGLIB_DEFINE_LIST_PROTOTYPES(int_list_t, INT_LIST_COMPARATOR, next);
+SGLIB_DEFINE_LIST_FUNCTIONS(int_list_t, INT_LIST_COMPARATOR, next);
 
 struct Proc {
     int fd[2];
@@ -20,6 +40,8 @@ struct Proc {
     char rbuf[100];
     size_t rcount;
 	cci_connection_t* conns[100];
+    int_list_t* sends[100];
+    int_list_t* recvs[100];
 };
 
 char* test_uri[100];
@@ -72,27 +94,47 @@ void check_msg(const char* ptr,uint32_t len) {
 	exit(EXIT_FAILURE);
 }
 
+void get_msg_id(const char* ptr,uint32_t len,char* res) {
+    // Read a numeric identifier
+    int pos = 0;
+    while (pos<len && '0'<=ptr[pos] && ptr[pos]<='9') {
+        res[pos]=ptr[pos];
+        pos+=1;
+    }
+    res[pos]='\0';
+}
+
 void handle_event(proc_t* p,cci_event_t* event) {
 	int pid = p->cci_pid;
+    char msg_id[100];
+    int_list_t* e;
     switch(event->type) {
        case CCI_EVENT_CONNECT_REQUEST:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT_REQUEST\n",pid);
+           fprintf(stderr,"process %d: CCI_EVENT_CONNECT_REQUEST (conn=%d)\n",pid,((void**)event->request.data_ptr)[0]);
 		   cci_accept(event,((void**)event->request.data_ptr)[0]);
            break;
        case CCI_EVENT_CONNECT:
-           fprintf(stderr,"process %d: CCI_EVENT_CONNECT (status=%s)\n",pid,cci_strerror(p->endpoint,event->connect.status));
+           fprintf(stderr,"process %d: CCI_EVENT_CONNECT (conn=%d,status=%s)\n"
+                   ,pid,event->connect.connection->context,cci_strerror(p->endpoint,event->connect.status));
            p->conns[(int64_t)event->connect.context] = event->connect.connection;
            break;
        case CCI_EVENT_ACCEPT:
-           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT (status=%s)\n",pid,cci_strerror(p->endpoint,event->accept.status));
-           p->conns[(int64_t)event->connect.context] = event->accept.connection;
+           fprintf(stderr,"process %d: CCI_EVENT_ACCEPT (conn=%d,status=%s)\n"
+                   ,pid,event->accept.context,cci_strerror(p->endpoint,event->accept.status));
+           *((void**)&(event->accept.connection->context)) = event->accept.context;
+           p->conns[(int64_t)event->accept.context] = event->accept.connection;
            break;
        case CCI_EVENT_RECV:
-           fprintf(stderr,"process %d: CCI_EVENT_RECV\n",pid);
            check_msg((const char*)event->recv.ptr,event->recv.len);
+           get_msg_id((const char*)event->recv.ptr,event->recv.len,msg_id);
+           fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,msg_id=%s)\n",pid,event->recv.connection->context,msg_id);
+           sglib_int_list_t_add(&p->recvs[(int64_t)event->recv.connection->context],mk_int_list_t_node(atoi(msg_id)));
            break;
        case CCI_EVENT_SEND:
-           fprintf(stderr,"process %d: CCI_EVENT_SEND (status=%s)\n",pid,cci_strerror(p->endpoint,event->send.status));
+           fprintf(stderr,"process %d: CCI_EVENT_SEND (conn=%d,msg_id=%d,status=%s)\n"
+                         ,pid,event->send.connection->context,(int64_t)event->send.context
+                         ,cci_strerror(p->endpoint,event->send.status));
+           sglib_int_list_t_add(&p->sends[(int64_t)event->send.connection->context],mk_int_list_t_node((int64_t)event->send.context));
            break;
        default:
            fprintf(stderr,"process %d: aborting with received event: %d\n",pid,event->type);
@@ -114,6 +156,50 @@ void poll_event(proc_t* p)
 
 	handle_event(p,event);
     cci_return_event(event);
+    write_msg(p,"");
+}
+
+void wait_send(proc_t* p,int cid,int sid)
+{
+    cci_event_t *event;
+    int pid = p->cci_pid;
+    char buf[100];
+    read_msg(p,buf);
+    int_list_t e = { sid, NULL };
+    int_list_t* d;
+    
+    sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d);
+	while(!d) {
+	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+		}
+		handle_event(p,event);
+		cci_return_event(event);
+        sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d);
+    }
+    free_int_list_t_node(d);
+
+    write_msg(p,"");
+}
+
+void wait_recv(proc_t* p,int cid,int rid)
+{
+    cci_event_t *event;
+    int pid = p->cci_pid;
+    char buf[100];
+    read_msg(p,buf);
+    int_list_t e = { rid, NULL };
+    int_list_t* d;
+
+    sglib_int_list_t_delete_if_member(&p->recvs[cid],&e,&d);
+	while(!d) {
+	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+		}
+		handle_event(p,event);
+		cci_return_event(event);
+        sglib_int_list_t_delete_if_member(&p->recvs[cid],&e,&d);
+    }
+    free_int_list_t_node(d);
+
     write_msg(p,"");
 }
 
@@ -242,6 +328,8 @@ int spawn(proc_t** p,int cci_pid) {
     (*p)->cci_pid = cci_pid;
     (*p)->rcount = 0;
 	memset((*p)->conns,0,100*sizeof(cci_connection_t*));
+	memset((*p)->sends,0,100*sizeof(int_list_t*));
+	memset((*p)->recvs,0,100*sizeof(int_list_t*));
 
     if (pipe(fdi)) {
         perror("Error creating pipe");

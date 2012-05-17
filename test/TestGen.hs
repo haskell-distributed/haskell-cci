@@ -140,8 +140,8 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
     cciStatement (WaitConnection c) = text "" $$ text ("cci_connection_t* c"++show c++" = wait_connection(p,"++show c++");")
     cciStatement (Send c si msg) = text "" $$ text ("send(p,c"++show c++","++show si++","++show (msgLen msg)++");")
     cciStatement (Disconnect c) = text "" $$ text ("disconnect(p,c"++show c++");")
-    cciStatement (WaitSendCompletion _ _) = text "" $$ text "poll_event(p);"
-    cciStatement (WaitRecv _ _) = text "" $$ text "poll_event(p);"
+    cciStatement (WaitSendCompletion cid sid) = text "" $$ text ("wait_send(p,"++show cid++","++show sid++");")
+    cciStatement (WaitRecv cid rid) = text "" $$ text ("wait_recv(p,"++show cid++","++show rid++");")
     cciStatement (Accept _) = empty
     cciStatement cmd = text "" $$ text ("unknown command: " ++ show cmd ++";")
 
@@ -376,7 +376,7 @@ type ProcessM a = StateT ([Process],[[Response]]) IO a
 runProcessM :: Int -> ProcessM a -> IO (a,[[Response]])
 runProcessM n m = do
     ps <- mapM launchWorker [0..n-1]
-    (fmap (\(a,(_,rs))-> (a,rs))$ runStateT m (ps,map (const []) ps))
+    (fmap (\(a,(_,rs))-> (a,map reverse rs))$ runStateT m (ps,map (const []) ps))
       `finally` (do forM_ ps (\p -> terminateProcess (ph p))
                     forM_ ps (\p -> waitForProcess (ph p)))
 
