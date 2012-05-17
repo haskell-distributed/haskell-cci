@@ -1,0 +1,52 @@
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Param
+   mmap(length)
+   ...
+   fun:cci_*
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Param
+   write(buf)
+   ...
+   fun:lt_*
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Param
+   close(fd)
+   ...
+   fun:cci_*
+}
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Param
+   write(buf)
+   ...
+   fun:cci_*
+}
+
+{
+  <insert_a_suppression_name_here>
+  Memcheck:Value8
+  ...
+  fun:cci_*
+}
+{
+  <insert_a_suppression_name_here>
+  Memcheck:Param
+  munmap(length)
+  ...
+  fun:cci_*
+}
+{
+  <insert_a_suppression_name_here>
+  Memcheck:Cond
+  ...
+  fun:cci_*
+}
+
