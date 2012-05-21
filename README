@@ -6,12 +6,6 @@ CCI API:
   https://parsci.assembla.com/code/cci-haskell/git/nodes/master/Network/CCI.hsc
 
 
-== Building haddock documentation == 
-
-cabal configure # avoid using "-f examples" or cabal haddock will fail.
-cabal haddock
-
-
 == Building cci ==
 
 # Install the 0.1a1 release of cci first. You'll have to request it at:
@@ -19,7 +13,7 @@ http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 # or via the mailing list:
 http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
 
-cabal configure -f examples
+cabal configure -f "examples tests"
 
 cabal build
 
@@ -76,7 +70,7 @@ http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
 
 
-cabal configure -f "examples static-verbs"
+cabal configure -f "examples tests static-verbs"
 
 cabal build
 

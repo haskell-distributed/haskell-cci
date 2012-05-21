@@ -1,95 +1,118 @@
 Files in this folder implement test generation.
 The test are run by issuing the following commands from the cci-haskell parent folder:
 
-cabal config -f "examples" --enable-tests
+cabal config -f tests
 cabal build
-cabal test
+dist/build/test-cci/test-cci
 
-There are worker processes which test the CCI features, and there is a driver process
-which tell the workers what they must do. The driver communicates with the workers
+If cci is installed in a non-standard folder the procedure needs to be changed
+as follows:
+
+cabal config -f tests --extra-lib-dirs=/path/to/cci/lib
+cabal build
+LD_LIBRARY_PATH=/path/to/cci/lib dist/build/test-cci/test-cci
+
+test_cci launches several worker processes which test the CCI features. cci_test
+is said to be in the driver role and drives these workers by spoon-feeding them 
+with commands involving CCI calls. Communication with the workers is done 
 through the standard input and output.
 
-Workers store the standard error output in files worker-stderr<N>.txt, where
-N identifies the process internally to the test generator. Subsequent test
-runs overwrite this files though. They are useful to debug the run of a single
-command sequence with TestGen.runCommands.
+The sequences of commands are randomly produced by the driver. As the workers
+perform these commands, they are recorded by the driver in traces. Whenever
+a sequence of commands has been fully executed, the command sequence and the
+traces produced by each worker are passed to predicates which evaluate
+specific conditions on the observed behavior.
 
-A test is written as in test/Props.hs:
+Whenever executing a command sequence fails, or a predicate is found that
+do not hold for a given trace. The failing case is shrunk by removing messages
+and interactions that do not affect the test result. Then the shrunk command
+sequence and trace is printed in the standard output, and a C program which
+reproduces the failing case in store in a file t<N>.c where N is a counter
+increased for each failing case found.
 
-1. main = do
-2.    errs <- testProp defaultTestConfig "example prop" (\_cmds _rs -> True)
-3.    mapM_ print errs
-4.    when (not (null errs)) exitFailure
+The generated C program can be compiled and run with:
 
-Line (2) generates multiple tests and test a predicate over them. That is,
-it generates the commands for the workers, collects the worker responses and then 
-evaluates a predicate feeding it with the commands and the responses. If the 
-property holds, the test passes otherwise the provided commands and responses are
-collected in the result of @testProp@. The previous procedure is repeated as many 
-times as specified in the @defaultTestConfig@ parameter:
+gcc -lcci t0.c -I test test/testlib.c -g
+valgrind --suppressions=./cci.supp ./a.out
 
--- | Parameters for running tests
-data TestConfig = TestConfig 
-    { nProcesses :: Int -- ^ Number of processes in tests
-    , nSends     :: Int -- ^ Number of sends in each interaction
-    , nTries     :: Int -- ^ Number of tests to run 
-    , nErrors    :: Int -- ^ Number of errors to collect before stopping
-    }
+If CCI is not on a standard location:
 
-defaultTestConfig :: TestConfig
-defaultTestConfig = TestConfig
-    { nProcesses = 2
-    , nSends     = 1
-    , nTries     = 5
-    , nErrors    = 2
-    }
+gcc -lcci t0.c -I test test/testlib.c -g -L /path/to/cci/lib -I /path/to/cci/include
+LD_LIBRARY_PATH=/path/to/cci/lib valgrind --suppressions=./cci.supp ./a.out
 
-The exitFailure in line (4) causes the program to terminate with a non-zero
-code. This tells the cabal framework that the test failed.
+So far the only meaningful predicate which is implemented is whether reliable
+ordered connections deliver packets orderly. But to reach the predicate
+evaluation stage, workers must have behaved with some consistency:
+ * The amount of recv events must match send events.
+ * The amount of send completion events must match send events.
+ * The workers should not crash or block waiting for an event which was
+   expected.
 
-During execution of @testProp@, when a command sequence is found that causes
-the predicate to yield false, the command sequence is pruned of superfluous
-commands before presenting collecting it as part of the result. A command
-is considered superfluous if removing it still causes the predicate to yield
-False.
+Some aspects of test generation can be customized via command-line arguments:
 
-The function @runCommands@ from module TestGen can be used to rerun commands
-that produced a bug.
-
-The driver process first spawns all the worker processes and then sends 
-commands to each worker once at a time in some random (but reproducible)
-order. The workers respond back with an Idle response when they have finished
-processing a command so the driver can deliver some other command to some
-potentially different worker. This strong synchronization between workers
-and driver should help making the bugs reproducible.
-
-Definitions of commands and responses can be found in test/Commands.hs.
+  --nprocesses[=INT]    Amount of processes to test [default: 2]
+  --nsends[=INT]        Amount of messages sent per interaction
+                        [default: 4]
+  --ntries[=INT]        Amount of command sequences to generate
+                        [default: 300]
+  --nerrors[=INT]       Amount of errors to collect before stopping
+                        testing [default: 2]
+  --nminmsglen[=INT]    Minimum size of messages to test [default: 16]
+  --nmaxmsglen[=INT]    Maximum size of messages to test [default: 16] 
+  --nPerProcRuns[=INT]  Amount of interactions each process initiates
+                        during a test [default: 2]
 
 
-Once you find a failing command sequence like:
+== Editing tests ==
 
-test :: [(Int,Command)]
-test = read "[([0],Accept 0),([1],Accept 1),([1],ConnectTo \"\" 0 0 Nothing),([1,0],WaitConnection 0),([1],Send 0 2 \"2\"),([1],WaitSendCompletion 0 2),([0],WaitRecv 0 2),([1],Send 0 1 \"1\"),([0],ConnectTo \"\" 1 1 Nothing),([0,1],WaitConnection 1),([0],Send 1 2 \"2\"),([1],WaitSendCompletion 0 1),([0],WaitSendCompletion 1 2),([1],WaitRecv 1 2),([0],WaitRecv 0 1),([0],Send 1 1 \"1\"),([0],WaitSendCompletion 1 1),([1],WaitRecv 1 1),([0],Disconnect 1),([1],Disconnect 0)]"
+Properties over generated traces are written as in test/test_cci.hs:
 
-, it can be rerun with
+  main = do
+      errs <- testProp defaultTestConfig $ \cmds rs ->
+                [ ( "sends equal completions"
+                  , length (filter (isSendCommand . snd) cmds) == length (concatMap (filter isSendCompletion) rs) 
+                  )
+                , ( "messages arrive sorted"
+                  , matchSendRecvs (collectSends cmds) (collectRecvs rs)
+                  )
+                ]
+      mapM_ print errs
+
+testProp takes a test configuration specifying parameters as those given in the
+command line to test-cci, and then takes a list of properties, each property
+specifies a name and a condition on a command sequence (cmds) and responses
+(rs) (i.e. process traces).
+
+testProp generates commands sequences, launches workers and executes the
+sequences generating traces or responses from the workers. Then the properties
+are evaluated.
+
+A list of errors is returned, which of course will be empty if no error was
+found. The information included in an error allows to reexecute the single
+command sequence which caused the failure, and also allows to generate a C
+program wich (hopefully) reproduces the misbehavior. 
+
+
+== Working with command sequences ==
+
+Supposing that we have some command sequence produced by tests:
+
+test :: [ProcCommand]
+test = [([0],Accept 5),([1],ConnectTo "" 0 5 Nothing),([1,0],WaitConnection 5)
+       ,([1],Send 5 0 (Msg 0 185)),([0],WaitRecv 5 0),([1],Send 5 1 (Msg 1 969))
+       ,([1],WaitSendCompletion 5 0),([1],WaitSendCompletion 5 1)
+       ,([1],Send 5 2 (Msg 2 495)),([1],WaitSendCompletion 5 2)
+       ,([0],WaitRecv 5 1),([0],WaitRecv 5 2),([1],Disconnect 5)]
+
+
+we can either execute it with 
 
 main :: IO ()
 main = runCommands test >>= print
 
-or with
-
-main :: IO ()
-main = testCommands "example prop" test 2 (\_cmds _rs -> your prop) >>= print
-  
-A C test program can be generated that executes the command sequence using the CCI C API:
+or we can generate a C program which executes it with:
 
 main :: IO ()
 main = writeFile "t.c"$ generateCTest test
-
-The C program will be saved to t.c. It needs to be compiled and linked with 
-test/testlib.c. Assuming it is compiled into an executable called "t", it 
-can be run with:
-
-CCI_CONFIG=cci.ini ./t
 
 

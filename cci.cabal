@@ -93,6 +93,10 @@ Library
     extra-libraries:  cci
 
 
+Flag tests
+  Description: Build tests
+  Default: False
+
 Flag examples
   Description: Build examples
   Default: False
@@ -132,14 +136,17 @@ Executable ex-server
 Executable test-cci
   main-is:        test_cci.hs
   hs-source-dirs: test
-  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
+  if flag(tests)
+    build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
+  else
+    buildable: False
 
 Executable test-Worker
   main-is:        Worker.hs
   ghc-options:    -O -Wall -idist/build -threaded
   hs-source-dirs: test
-  if flag(examples)
+  if flag(tests)
     build-depends:  base, bytestring, cci, time, containers, binary
   else
     buildable: False
