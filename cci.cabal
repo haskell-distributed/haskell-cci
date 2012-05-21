@@ -129,11 +129,10 @@ Executable ex-server
   else
     buildable: False
 
-Test-Suite test-cci
-  type:           exitcode-stdio-1.0
-  main-is:        Props.hs
+Executable test-cci
+  main-is:        test_cci.hs
   hs-source-dirs: test
-  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, pretty
+  build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
 
 Executable test-Worker

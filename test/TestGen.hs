@@ -5,6 +5,7 @@
 --
 
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 module TestGen
     ( testProp, TestConfig(..), defaultTestConfig, runCommands, Response(..)
     , Command(..),Msg(..), TestError, testCommands, ProcCommand, generateCTest
@@ -16,6 +17,8 @@ import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import Data.Function   ( on )
 import Data.List       ( sort, nub, sortBy, groupBy, intersect )
+import Data.Typeable   ( Typeable )
+import Data.Data       ( Data )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
@@ -44,18 +47,19 @@ data TestConfig = TestConfig
     , nErrors    :: Int -- ^ Number of errors to collect before stopping
     , nMinMsgLen :: Int -- ^ Minimum length of active messages
     , nMaxMsgLen :: Int -- ^ Maximum length of active messages
-    , nPerProcessInteraction :: Int -- ^ Number of interactions per process
+    , nPerProcessInteractions :: Int -- ^ Number of interactions per process
     }
+ deriving (Show,Data,Typeable)
 
 defaultTestConfig :: TestConfig
 defaultTestConfig = TestConfig
     { nProcesses = 2
-    , nSends     = 1
-    , nTries     = 100
+    , nSends     = 4
+    , nTries     = 300
     , nErrors    = 2
-    , nMinMsgLen = 10
-    , nMaxMsgLen = 10
-    , nPerProcessInteraction = 1
+    , nMinMsgLen = 16
+    , nMaxMsgLen = 16
+    , nPerProcessInteractions = 2
     }
 
 type TestError = ([ProcCommand],[[Response]],String)
@@ -225,7 +229,7 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
 -- | Takes the amount of processes, and generates commands for an interaction among them.
 genCommands :: TestConfig -> StdGen -> IO (Interaction,StdGen)
 genCommands c g = return$ runCommandGenDefault g$
-               (replicateM (nPerProcessInteraction c)$ permute [0..nProcesses c-1])
+               (replicateM (nPerProcessInteractions c)$ permute [0..nProcesses c-1])
                >>= mapM (uncurry (genInteraction c)) . concat . map (zip [0..])
                >>= foldM mergeI []
   where
