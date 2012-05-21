@@ -16,13 +16,24 @@ import Network.CCI           ( Status(..) )
 data Command =
       ConnectTo String Int WordPtr (Maybe Word64) -- ^ @ConnectTo uri process_id connection_id timeout@ process id is 
                                                   -- only used on the test driver side
-    | Send WordPtr WordPtr Msg                    -- ^ @Send connection_id send_id "send_id"@ message 
+    | Send WordPtr WordPtr Msg                    -- ^ @Send connection_id send_id msg@ message 
     | Accept WordPtr                              -- ^ @Accept connection_id@
     | Reject WordPtr                              -- ^ @Reject connection_id@
     | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
     | WaitConnection WordPtr                      -- ^ Wait for a given connection to be established.
     | WaitSendCompletion WordPtr WordPtr          -- ^ @WaitSendCompletion conn_id send_id@ Wait for a send completion to arrive.
     | WaitRecv WordPtr WordPtr                    -- ^ @WaitRecv conn_id recv_id@ for a receive event to arrive.
+
+    | RMAReuseRMAHandle WordPtr                   -- ^ @RMAReuseRMAHandle conn_id@ marks the connection @conn_id@ to
+                                                  -- reuse a previous rma handle instead of creating a new one.
+    | RMAHandleExchange WordPtr                   -- ^ @RMAHandleExchange conn_id@ exchanges rma handles with the
+                                                  -- given process through the driver.
+    | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
+    | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
+    | RMARead WordPtr WordPtr                     -- ^ @RMARead conn_id msg_id@ 
+    | WaitRMARecv WordPtr WordPtr                 -- ^ @WaitRMARecv conn_id msg_id@ 
+    | WaitRMASend WordPtr WordPtr                 -- ^ @WaitRMASend conn_id msg_id@ 
+
     | Quit
   deriving (Show, Read, Eq)
 
@@ -42,8 +53,11 @@ data Response =
     | Idle
   deriving (Show, Read, Eq)
 
-data Msg = Msg WordPtr Int  -- | Message_id and length of the message.
+data Msg = Msg WordPtr Int  -- | Message_id and length of the message. See 'msgToString' to learn how the message is generated.
   deriving (Show, Read, Eq)
+
+msgToString :: Msg -> String
+msgToString (Msg ctx l) = let n = show ctx in n ++ take (l-length n) (' ' : cycle n)
 
 
 -- | Initializes communication with the driver process.

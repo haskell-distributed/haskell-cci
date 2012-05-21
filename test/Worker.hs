@@ -18,7 +18,7 @@
 -- 
 -- Worker processes are spawned by the driver process.
 --
--- See test/Props.hs for an example of driver process.
+-- See test/test_cci.hs for an example of driver process.
 
 import Prelude hiding          ( catch )
 import Control.Exception       ( catch, SomeException )
@@ -30,20 +30,22 @@ import qualified Data.ByteString.Char8 as B8 ( unpack, pack )
 import Data.Binary             ( decode, encode )
 import Data.Char               ( isDigit )
 import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
-import qualified Data.Map as M ( empty, Map, lookup, insert )
-import qualified Data.Set as S ( empty, Set, insert, member, delete )
+import qualified Data.Map as M ( empty, lookup, insert )
+import Data.Map                ( Map )
+import qualified Data.Set as S ( empty, insert, member, delete )
+import Data.Set      ( Set )
 import qualified Data.IntSet as IS ( empty, IntSet, insert, member )
-import Data.Word               ( Word64 )
-import Foreign.Ptr             ( WordPtr )
+import Data.Word               ( Word64, Word8 )
+import Foreign.Ptr             ( WordPtr, Ptr )
 import System.IO               ( hPutStrLn, stderr )
 
 import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
-                               , endpointURI, pollWithEventData
+                               , endpointURI, pollWithEventData, RMALocalHandle, RMARemoteHandle
                                )
 
-import Commands                ( initCommands,readCommand
+import Commands                ( initCommands,readCommand, msgToString
                                , Command(..), Msg(..)
                                , Response( Error,Recv,ReqAccepted,ReqRejected,ReqIgnored,ConnectAccepted
                                          , SendCompletion, Rejected, TimedOut, KeepAliveTimedOut
@@ -61,50 +63,59 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
    withCCI$ do
     rcm <- emptyConnMap
     rcrs <- emptyConnReq
+    rmar <- emptyRMAState
     withEndpoint Nothing$ \(ep,_fd) -> do
       endpointURI ep >>= putStrLn
       endpointURI ep >>= hPutStrLn stderr
-      processCommands rcm rcrs ep
+      processCommands rcm rcrs rmar ep
 
   where
 
-    processCommands rcm rcrs ep = 
+    processCommands rcm rcrs rmar ep = 
        readCommand >>= \cm -> do
-
+         let go = processCommands rcm rcrs rmar ep
          hPutStrLn stderr$ " command: "++show cm
          case cm of
 
            ConnectTo uri _ i mt -> do
-               connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_UU i mt
-               sendResponse Idle >> processCommands rcm rcrs ep
+               connect ep uri (B.concat$ toChunks$ encode (fromIntegral i :: Word64)) CONN_ATTR_RO i mt
+               sendResponse Idle >> go
 
-           Accept i -> markAccept i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
+           Accept i -> markAccept i rcrs >> sendResponse Idle >> go
 
-           Reject i -> markReject i rcrs >> sendResponse Idle >> processCommands rcm rcrs ep
+           Reject i -> markReject i rcrs >> sendResponse Idle >> go
 
            Disconnect i -> do
                c <- getConn' i rcm
-               disconnect c >> sendResponse Idle >> processCommands rcm rcrs ep
+               disconnect c >> sendResponse Idle >> go
 
            Send i ctx bs -> do
                c <- getConn' i rcm
-               send c (msgToByteString bs) ctx []
-               sendResponse Idle >> processCommands rcm rcrs ep
+               send c (B8.pack$ msgToString bs) ctx []
+               sendResponse Idle >> go
 
            WaitConnection cid -> do
                         waitConnection rcm rcrs ep cid
                         sendResponse Idle
-                        processCommands rcm rcrs ep
+                        go
 
            WaitSendCompletion cid sid -> do
                         waitSendCompletion rcm rcrs ep cid sid
                         sendResponse Idle
-                        processCommands rcm rcrs ep
+                        go
 
            WaitRecv cid rid -> do
                         waitRecv rcm rcrs ep cid rid
                         sendResponse Idle
-                        processCommands rcm rcrs ep
+                        go
+
+           RMAReuseRMAHandle cid -> do
+                        markReuseRMAH cid rmar
+                        sendResponse Idle
+                        go
+
+--           RMAHandleExchange cid -> do
+                        
 
            Quit -> sendResponse Idle
 
@@ -179,9 +190,6 @@ byteStringToMsg bs = let (ctxs,rest) = break (not . isDigit)$ B8.unpack bs
     wellFormed ctx (' ':rs) = and$ zipWith (==) (cycle ctx) rs
     wellFormed _ _ = False
 
-msgToByteString :: Msg -> ByteString
-msgToByteString (Msg ctx l) = let n = show ctx in B8.pack$ n ++ take (l-length n) (' ' : cycle n)
-
 
 -- Map of connection requests
 
@@ -190,8 +198,8 @@ type ConnReqs = IORef ConnReqsD
 -- | This is a map that specifies whether a connection request with a specific identifier
 -- should be accepted or rejected upon reception.
 data ConnReqsD = ConnReqsD
-    { connAccept :: S.Set WordPtr -- ^ Requests with these identifiers should be accepted.
-    , connReject :: S.Set WordPtr -- ^ Requests with these identifiers should be rejected.
+    { connAccept :: Set WordPtr -- ^ Requests with these identifiers should be accepted.
+    , connReject :: Set WordPtr -- ^ Requests with these identifiers should be rejected.
     }
 
 emptyConnReq :: IO ConnReqs
@@ -221,7 +229,7 @@ handleConnectionRequest rcrs ev bs _cattrs = do
 
 -- Map of connections
 
-type ConnMap = IORef (M.Map WordPtr ConnectionInfo,M.Map Connection WordPtr)
+type ConnMap = IORef (Map WordPtr ConnectionInfo,Map Connection WordPtr)
 data ConnectionInfo = ConnInfo
     { connection :: Connection
     , sendCompletions :: IS.IntSet
@@ -265,4 +273,25 @@ insertConn w c rcm = insertConnInfo w (ConnInfo c IS.empty IS.empty) rcm
 
 insertConnInfo :: WordPtr -> ConnectionInfo -> ConnMap -> IO ()
 insertConnInfo w ci rcm = atomicModifyIORef rcm $ \(wc,cw) -> ((M.insert w ci wc, M.insert (connection ci) w cw),())
+
+----------------------
+-- RMA state
+----------------------
+
+data RMAState = RMAState 
+    { reused :: Set WordPtr
+    , localHandles :: [(RMALocalHandle,Ptr Word8,Int)]
+    , remoteHandles :: Map WordPtr (RMARemoteHandle,RMALocalHandle)
+    }
+
+emptyRMAState :: IO (IORef RMAState)
+emptyRMAState = newIORef RMAState 
+    { reused        = S.empty
+    , localHandles  = []
+    , remoteHandles = M.empty
+    }
+
+markReuseRMAH :: WordPtr -> IORef RMAState -> IO ()
+markReuseRMAH w r = atomicModifyIORef r (\rmas -> (rmas { reused = S.insert w (reused rmas) },()))
+
 
