@@ -120,7 +120,6 @@ void handle_event(proc_t* p,cci_event_t* event) {
        case CCI_EVENT_ACCEPT:
            fprintf(stderr,"process %d: CCI_EVENT_ACCEPT (conn=%d,status=%s)\n"
                    ,pid,event->accept.context,cci_strerror(p->endpoint,event->accept.status));
-           *((void**)&(event->accept.connection->context)) = event->accept.context;
            p->conns[(int64_t)event->accept.context] = event->accept.connection;
            break;
        case CCI_EVENT_RECV:
