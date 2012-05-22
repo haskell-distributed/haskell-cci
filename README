@@ -8,14 +8,23 @@ CCI API:
 
 == Building cci ==
 
-# Install the 0.1a1 release of cci first. You'll have to request it at:
+# Install latest cci first. You'll have to request it at:
 http://www.olcf.ornl.gov/center-projects/common-communication-interface/
 # or via the mailing list:
 http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
 
 cabal configure -f "examples tests"
-
 cabal build
+
+If cci is in a non-standard folder:
+
+cabal config -f tests --extra-lib-dirs=/path/to/cci/lib
+cabal build
+
+And for running programs:
+
+LD_LIBRARY_PATH=/path/to/cci/lib some_program
+
 
 # to generate documentation
 cabal install # fixes error "cabal: Can't find deps for haddock" which would
@@ -23,29 +32,18 @@ cabal install # fixes error "cabal: Can't find deps for haddock" which would
 cabal haddock
 
 
-== Running pingpong using UDP sockets ==
-
-# Create a config file for using UDP sockets:
-cat > cci.ini
-[eth0]
-driver = sock
-# replace with your device ip address
-ip = 192.168.0.1
-# replace with your device mac address
-mac = 00:e0:7d:ad:95:5e
-default = 1
-
+== Running pingpong ==
 
 # Start the server
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
+dist/build/ex-pingpong/ex-pingpong -s
   Opened ip://192.168.0.1:46188
   ...
 
 # Start the client using rma transfers upto 4 MB.
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
+dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
 
 # Start the client using active messages
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
+dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
 
 
 == Building cci statically ==
@@ -59,7 +57,7 @@ below if you want to use the verbs driver, or static-sock if you want
 to use the sock driver instead. No other drivers are possible to use
 this way.
 
-# Get ORNL CCI 0.1a1 release.
+# Get ORNL CCI.
 # For parsci folks, this can be achieved by issuing:
 git clone git@git.assembla.com:cci-ornl.git cci
 
@@ -74,29 +72,11 @@ cabal configure -f "examples tests static-verbs"
 
 cabal build
 
+== Running tests ==
 
-== Running pingpong ==
+In short:
 
-# Create a config file for using the verbs driver:
-cat > cci.ini
-[Infiniband]
-driver=verbs
-mss=1024
-hca_id = mlx4_0
+LD_LIBRARY_PATH=/path/to/cci/lib dist/build/test-cci/test-cci
 
-# Start the server
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -s
-  Opened verbs://10.155.90.13:46188
-  ...
-
-# Start the client using rma transfers upto 4 MB.
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188 -r 4194304
-
-# Start the client using active messages
-CCI_CONFIG=cci.ini dist/build/ex-pingpong/ex-pingpong -h verbs://10.155.90.13:46188
-
-
-== Testing ==
-
-See test/README.
+See test/README for details.
 
