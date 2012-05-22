@@ -417,6 +417,7 @@ launchWorker pid = do
                                   , std_out = CreatePipe
                                   , std_err = UseHandle herr
                                   , close_fds = False
+								  , create_group = False
                                   }
 
     -- (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"

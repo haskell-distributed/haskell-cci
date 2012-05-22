@@ -95,7 +95,7 @@ import Data.ByteString as B   ( ByteString, packCStringLen, unpack, pack, length
 import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen )
 import Data.Dynamic           ( Typeable )
 import Data.Word              ( Word8, Word32, Word64 )
-import Foreign.C.Types        ( CInt, CChar )
+import Foreign.C.Types        ( CInt(..), CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )

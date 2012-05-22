@@ -138,7 +138,8 @@ Executable test-cci
   hs-source-dirs: test
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
   if flag(tests)
-    build-depends:  base, bytestring, cci, containers, binary, process, filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
+    build-depends:  base, bytestring, cci, containers, binary, process<1.2
+                  , filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
   else
     buildable: False
 
