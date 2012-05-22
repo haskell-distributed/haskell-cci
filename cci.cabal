@@ -5,7 +5,7 @@
 --
 
 Name:         cci
-Version:      0.1.0
+Version:      0.2.0
 Synopsis:     Bindings for the CCI networking library
 Description:  The CCI project is an open-source communication interface that 
               aims to provide a simple and portable API, high performance, 
@@ -31,7 +31,7 @@ source-repository head
 source-repository this
     type:     git
     location: https://parsci.assembla.com/code/cci-haskell/git/nodes
-    tag:      0.1.0
+    tag:      0.2.0
 
 
 Library
@@ -138,8 +138,8 @@ Executable test-cci
   hs-source-dirs: test
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
   if flag(tests)
-    build-depends:  base, bytestring, cci, containers, binary, process<1.2
-                  , filepath, mtl, random >= 1.0.1.0, cmdargs<0.10, pretty<1.2
+    build-depends:  base<4.6, bytestring<0.10, cci, containers<0.5, binary<0.6, process<1.2
+                  , filepath<1.3, mtl<2.1, random >= 1.0.1.0 && < 1.1, cmdargs<0.10, pretty<1.2
   else
     buildable: False
 
