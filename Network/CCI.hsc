@@ -99,7 +99,7 @@ import Foreign.C.Types        ( CInt(..), CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
-import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff, sizeOf) )
+import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff) )
 
 import System.Posix.Types     ( Fd(Fd) )
 
@@ -1169,14 +1169,13 @@ data EventData s =
 --  * driver-specific errors.
 --
 setConnectionOpt :: Connection -> ConnectionOption -> Word32 -> IO ()
-setConnectionOpt (Connection pconn) co v = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+setConnectionOpt (Connection pconn) co v =
     alloca$ \pv -> do
       poke pv v
-      #{poke cci_opt_handle_t, connection} ph pconn
-      cci_set_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv (fromIntegral$ sizeOf v)
+      cci_set_opt (castPtr pconn) (fromIntegral$ fromEnum co) pv
         >>= cci_check_exception
 
-foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> CInt -> Ptr Word32 -> CInt -> IO CInt
+foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr Word32 -> IO CInt
 
 
 -- | Sets an endpoint option value
@@ -1188,11 +1187,10 @@ foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> CInt -> Ptr Word32 
 --  * driver-specific errors.
 --
 setEndpointOpt :: Endpoint -> EndpointOption -> Word32 -> IO ()
-setEndpointOpt (Endpoint pend) eo v = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+setEndpointOpt (Endpoint pend) eo v =
     alloca$ \pv -> do
       poke pv v
-      #{poke cci_opt_handle_t, endpoint} ph pend
-      cci_set_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv (fromIntegral$ sizeOf v)
+      cci_set_opt (castPtr pend) (fromIntegral$ fromEnum eo) pv
         >>= cci_check_exception
     
 
@@ -1206,14 +1204,13 @@ setEndpointOpt (Endpoint pend) eo v = allocaBytes #{size cci_opt_handle_t}$ \ph 
 --  * driver-specific errors.
 --
 getConnectionOpt :: Connection -> ConnectionOption -> IO Word32
-getConnectionOpt (Connection pconn) co = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+getConnectionOpt (Connection pconn) co =
     alloca$ \pv -> do
-      #{poke cci_opt_handle_t, connection} ph pconn
-      cci_get_opt ph #{const CCI_OPT_LEVEL_CONNECTION} (fromIntegral$ fromEnum co) pv
+      cci_get_opt (castPtr pconn) (fromIntegral$ fromEnum co) pv
         >>= cci_check_exception
       peek pv >>= peek . castPtr
 
-foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()) -> IO CInt
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr (Ptr ()) -> IO CInt
 
 
 -- | Retrieves an endpoint option value.
@@ -1225,10 +1222,9 @@ foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> CInt -> Ptr (Ptr ()
 --  * driver-specific errors.
 --
 getEndpointOpt :: Endpoint -> EndpointOption -> IO (Either Word32 String)
-getEndpointOpt (Endpoint pend) eo = allocaBytes #{size cci_opt_handle_t}$ \ph ->
+getEndpointOpt (Endpoint pend) eo =
     alloca$ \pv -> do
-      #{poke cci_opt_handle_t, endpoint} ph pend
-      cci_get_opt ph #{const CCI_OPT_LEVEL_ENDPOINT} (fromIntegral$ fromEnum eo) pv
+      cci_get_opt (castPtr pend) (fromIntegral$ fromEnum eo) pv
         >>= cci_check_exception
       peek pv >>= peekE eo
   where
