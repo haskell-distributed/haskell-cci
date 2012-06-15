@@ -12,17 +12,17 @@ module TestGen
     ) where
 
 import Control.Arrow       ( second )
-import Control.Exception   ( catch, finally, IOException, evaluate, SomeException )
+import Control.Exception   ( catch, finally, IOException, evaluate, SomeException, bracket )
 import Control.Monad       ( unless, void, forM_, replicateM, when, liftM, foldM, forM )
 import Control.Monad.State ( StateT(..), MonadState(..),modify, lift, State, runState )
 import Data.Function   ( on )
-import Data.List       ( sort, nub, sortBy, groupBy, intersect )
+import Data.List       ( sort, nub, sortBy, groupBy, intersect, isInfixOf )
 import Data.Typeable   ( Typeable )
 import Data.Data       ( Data )
 import Foreign.Ptr     ( WordPtr )
 import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
-import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..) )
+import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..), hGetContents, hClose )
 import System.Process  ( waitForProcess, terminateProcess, ProcessHandle
                        , CreateProcess(..), createProcess, StdStream(..), CmdSpec(..) 
                        )
@@ -48,6 +48,7 @@ data TestConfig = TestConfig
     , nMinMsgLen :: Int -- ^ Minimum length of active messages
     , nMaxMsgLen :: Int -- ^ Maximum length of active messages
     , nPerProcessInteractions :: Int -- ^ Number of interactions per process
+    , withValgrind :: Bool -- ^ Run tests with valgrind.
     }
  deriving (Show,Data,Typeable)
 
@@ -60,6 +61,7 @@ defaultTestConfig = TestConfig
     , nMinMsgLen = 16
     , nMaxMsgLen = 16
     , nPerProcessInteractions = 2
+    , withValgrind = False
     }
 
 type TestError = ([ProcCommand],[[Response]],String)
@@ -70,24 +72,30 @@ type TestError = ([ProcCommand],[[Response]],String)
 --
 -- Several command sequences are generated. Sequences that make the property fail are
 -- yielded as part of the result.
-testProp :: TestConfig -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO [TestError]
-testProp c f = go (mkStdGen 0) [] (nErrors c) (nTries c)
+--
+-- @testProp@ takes the configuration parameters and a callback which is
+-- evaluated for every error. The callback takes the error and an error-indentifying
+-- index.
+--
+testProp :: TestConfig -> (TestError -> Int -> IO ()) -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO [TestError]
+testProp c onError f = go (mkStdGen 0) [] (nErrors c) (nTries c)
   where
     go _g errors _ 0 = return errors
     go _g errors 0 _ = return errors
     go g errors errCount tryCount = do
       (tr,g') <- genCommands c g
       let tr' = map snd tr
-      me <- testCommands tr' (nProcesses c) f
+      me <- testCommands c tr' f
       case me of
-        Just err -> do err' <- shrink tr err (nProcesses c) f
+        Just err -> do err' <- shrink c tr err f
+                       onError err' (length errors)
                        go g' (err':errors) (errCount-1) (tryCount-1)
         Nothing  -> go g' errors errCount (tryCount-1)
 
 -- | Runs a sequence of commands and verifies that the given predicate holds on the results.
-testCommands :: [ProcCommand] -> Int -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO (Maybe TestError)
-testCommands t nProc f = do
-      r <- (fmap (Right . snd)$ runProcessM nProc$ runProcs t
+testCommands :: TestConfig -> [ProcCommand] -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO (Maybe TestError)
+testCommands c t f = do
+      r <- (fmap (Right . snd)$ runProcessM c$ runProcs t
                 ) `catch` \e -> return$ Left (t,[],show (e :: IOException))
       case r of
         Left err -> return$ Just err
@@ -119,19 +127,19 @@ shrinkCommands tr =
 
 -- | Shrinks a command sequence as much as possible while preserving a faulty behavior
 -- with respect to the provided predicate.
-shrink :: Interaction -> TestError -> Int -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO TestError
-shrink tr err nProc f = go (shrinkCommands tr)
+shrink :: TestConfig -> Interaction -> TestError -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO TestError
+shrink c tr err f = go (shrinkCommands tr)
   where
     go []       = return err 
     go (tr':trs) = do
-        me <- testCommands (map snd tr') nProc f 
+        me <- testCommands c (map snd tr') f 
         case me of
-          Just err' -> shrink tr' err' nProc f
+          Just err' -> shrink c tr' err' f
           Nothing   -> go trs
 
 
 runCommands :: [ProcCommand] -> IO [[Response]]
-runCommands t = fmap snd$ runProcessM (1 + maximum (concatMap fst t))$ runProcs t
+runCommands t = fmap snd$ runProcessM (defaultTestConfig { nProcesses = (1 + maximum (concatMap fst t)) })$ runProcs t
 
 
 generateCTest :: [ProcCommand] -> String
@@ -377,12 +385,25 @@ genInteraction c p0 p1 = do
 
 type ProcessM a = StateT ([Process],[[Response]]) IO a
 
-runProcessM :: Int -> ProcessM a -> IO (a,[[Response]])
-runProcessM n m = do
-    ps <- mapM launchWorker [0..n-1]
+runProcessM :: TestConfig -> ProcessM a -> IO (a,[[Response]])
+runProcessM c m = do
+    ps <- mapM (launchWorker c) [0..nProcesses c-1]
     (fmap (\(a,(_,rs))-> (a,map reverse rs))$ runStateT m (ps,map (const []) ps))
       `finally` (do forM_ ps (\p -> terminateProcess (ph p))
-                    forM_ ps (\p -> waitForProcess (ph p)))
+                    forM_ ps (\p -> waitForProcess (ph p))
+                    when (withValgrind c)$
+                      forM_ [0..length ps-1] checkValgrindMessages
+                )
+  where
+    checkValgrindMessages pid =
+      bracket
+        (openBinaryFile (workerStderr pid) ReadMode)
+        hClose
+        (\h -> do
+          s <- hGetContents h
+          when ("==    at " `isInfixOf` s)$ ioError$ userError$ "valgrind found errors"
+        )
+
 
 runProcs :: [ProcCommand] -> ProcessM ()
 runProcs tr = do
@@ -395,6 +416,8 @@ runProcs tr = do
 
    fmap fst get >>= \ps -> forM_ [0..length ps-1]$ sendCommand Quit
 
+workerStderr :: Int -> String
+workerStderr pid = "worker-stderr"++show pid++".txt"
 
 -- | Process communication
 
@@ -405,19 +428,20 @@ data Process = Process
     , uri :: String
     }
 
-launchWorker :: Int -> IO Process
-launchWorker pid = do
+launchWorker :: TestConfig -> Int -> IO Process
+launchWorker c pid = do
     -- (hin,hout,herr,phandle) <- runInteractiveProcess workerPath [] Nothing (Just [("CCI_CONFIG","cci.ini"),("LD_LIBRARY_PATH","cci/built/lib")])
-    herr <- openBinaryFile ("worker-stderr"++show pid++".txt") WriteMode
+    herr <- openBinaryFile (workerStderr pid) WriteMode
     (Just hin,Just hout,_herr,phandle) <- createProcess CreateProcess 
-                                  { cmdspec = RawCommand workerPath []
+                                  { cmdspec = if withValgrind c then RawCommand "valgrind" ["--suppressions=cci.supp","--quiet", workerPath]
+                                                else RawCommand workerPath []
                                   , cwd = Nothing
                                   , env = Nothing
                                   , std_in = CreatePipe
                                   , std_out = CreatePipe
                                   , std_err = UseHandle herr
                                   , close_fds = False
-								  , create_group = False
+                                  , create_group = False
                                   }
 
     -- (hin,hout,herr,phandle) <- runInteractiveCommand$ "CCI_CONFIG=cci.ini "++workerPath++" 2> worker-stderr"++show pid++".txt"

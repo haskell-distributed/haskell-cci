@@ -61,14 +61,14 @@ Some aspects of test generation can be customized via command-line arguments:
   --nmaxmsglen[=INT]    Maximum size of messages to test [default: 16] 
   --nPerProcRuns[=INT]  Amount of interactions each process initiates
                         during a test [default: 2]
-
+  --with-valgrind       Run tests with valgrind [default: False]
 
 == Editing tests ==
 
 Properties over generated traces are written as in test/test_cci.hs:
 
   main = do
-      errs <- testProp defaultTestConfig $ \cmds rs ->
+      errs <- testProp defaultTestConfig onError$ \cmds rs ->
                 [ ( "sends equal completions"
                   , length (filter (isSendCommand . snd) cmds) == length (concatMap (filter isSendCompletion) rs) 
                   )
@@ -81,7 +81,9 @@ Properties over generated traces are written as in test/test_cci.hs:
 testProp takes a test configuration specifying parameters as those given in the
 command line to test-cci, and then takes a list of properties, each property
 specifies a name and a condition on a command sequence (cmds) and responses
-(rs) (i.e. process traces).
+(rs) (i.e. process traces). onError is a callback evaluated each time an
+error is found. It can be useful to print the errors to the standard output
+as soone as they are found.
 
 testProp generates commands sequences, launches workers and executes the
 sequences generating traces or responses from the workers. Then the properties

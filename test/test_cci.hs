@@ -4,7 +4,7 @@
 -- See the accompanying COPYING file for license information.
 --
 
-import Control.Monad   ( when, forM_ )
+import Control.Monad   ( when )
 import qualified Data.Map as M( empty, insert, lookup )
 import GHC.Exts        ( groupWith )
 import System.Exit     ( exitFailure )
@@ -28,12 +28,13 @@ props = do
                                      intopt "Amount of interactions each process initiates during a test" (nPerProcessInteractions defaultTestConfig)
                                      &= name "nPerProcRuns" &= explicit
                               , nErrors= intopt "Amount of errors to collect before stopping testing" (nErrors defaultTestConfig)
+                              , withValgrind = boolopt "Run tests with valgrind." (withValgrind defaultTestConfig) &= name "with-valgrind" &= explicit
                               }
                                 &= summary "CCI test generator v0.0.1, (C) Parallel Scientific 2012"
                                 &= details ["See test/README for details."]
                                 &= program "test_cci"
                   )
-    errs <- testProp tc$ \cmds rs ->
+    errs <- testProp tc printErrorAndGenerateTest$ \cmds rs ->
                 [ ( "sends equal completions"
                   , length (filter (isSendCommand . snd) cmds) == length (concatMap (filter isSendCompletion) rs) 
                   )
@@ -41,18 +42,22 @@ props = do
                   , matchSendRecvs (collectSends cmds) (collectRecvs rs)
                   )
                 ]
-    mapM_ print errs
-    let cfilename :: Int -> String
-        cfilename i = "t"++show i++".c"
-    forM_ (zip errs [0..])$ \((s,_,_),i) -> writeFile (cfilename i)$ generateCTest s
-    when (not (null errs))$ do
-       putStrLn$ "Test programs have been written to " ++ show (map cfilename [0..length errs-1])
-       exitFailure
+    when (not (null errs))$ exitFailure
   where
     isSendCompletion (SendCompletion _ _ _) = True
     isSendCompletion _ = False
     intopt :: (Default a,Data a,Show a) => String -> a -> a
     intopt s i = i &= help (s++" [default: "++show i++"]") &= opt i
+    boolopt :: (Default a,Data a,Show a) => String -> a -> a
+    boolopt s i = i &= help (s++" [default: "++show i++"]")
+
+    printErrorAndGenerateTest e@(s,_,_) i = do
+      print e
+      let cfilename :: Int -> String
+          cfilename i = "t"++show i++".c"
+      writeFile (cfilename i)$ generateCTest s
+      putStrLn$ "A test program has been written to " ++ show (cfilename i)
+
 
 isSendCommand :: Command -> Bool
 isSendCommand (Send _ _ _) = True
@@ -80,7 +85,7 @@ attachProcDestination = go M.empty
   where go m (c@(_,ConnectTo _ pid cid _):cms) = (Nothing,c) : go (M.insert cid pid m) cms
         go m (c@(_,Send cid _ _):cms) = (M.lookup cid m,c) : go m cms
         go m (c:cms) = (Nothing,c) : go m cms
-        go m [] = []
+        go _ [] = []
 
 collectRecvs :: [[Response]] -> [[[Response]]]
 collectRecvs = map (groupWith getConn) . map (filter isRecvResp)
