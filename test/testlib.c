@@ -227,10 +227,8 @@ cci_connection_t*  wait_connection(proc_t* p,int cid)
 
 
 char* get_endpoint_name(cci_endpoint_t* ep) {
-    cci_opt_handle_t handle;
-    handle.endpoint = ep;
     char* name;
-	int ret = cci_get_opt(&handle, CCI_OPT_LEVEL_ENDPOINT, CCI_OPT_ENDPT_URI, (void *)&name);
+	int ret = cci_get_opt(ep, CCI_OPT_ENDPT_URI, (void *)&name);
     check_return("cci_get_opt",ep,ret,1);
     return name;
 }
