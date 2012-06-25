@@ -377,7 +377,7 @@ genInteraction c p0 p1 = do
                              then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1]  ] ,mid) 
                              else ([],w1)
         rest <- genSends cid p0 p1 w0' w1' (mid+1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral (mid+1)) (Msg (fromIntegral (1+mid)) msgLen)) : rest
 
 
 

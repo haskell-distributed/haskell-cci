@@ -7,6 +7,8 @@
 module Commands where
 
 import Data.Word             ( Word64 )
+import Data.ByteString       ( ByteString )
+import qualified Data.ByteString.Char8 as B8 ( unpack )
 import Foreign.Ptr           ( WordPtr )
 import System.IO             ( hSetBuffering, BufferMode(LineBuffering), stdin, stdout, hFlush, hReady)
 
@@ -31,8 +33,7 @@ data Command =
     | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
     | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
     | RMARead WordPtr WordPtr                     -- ^ @RMARead conn_id msg_id@ 
-    | WaitRMARecv WordPtr WordPtr                 -- ^ @WaitRMARecv conn_id msg_id@ 
-    | WaitRMASend WordPtr WordPtr                 -- ^ @WaitRMASend conn_id msg_id@ 
+	| RMAFreeHandles WordPtr                      -- ^ @RMAFreeHandles conn_id@ releases the handles of a connection.
 
     | Quit
   deriving (Show, Read, Eq)
@@ -54,10 +55,16 @@ data Response =
   deriving (Show, Read, Eq)
 
 data Msg = Msg WordPtr Int  -- | Message_id and length of the message. See 'msgToString' to learn how the message is generated.
+         | MsgRMAH ByteString -- | Carries an rma handle 
+		 | MsgRMARead WordPtr -- | Carries an rmaRead identifier.
+		 | MsgRMAWrite WordPtr -- | Carries an rmaWrite identifier.
   deriving (Show, Read, Eq)
 
 msgToString :: Msg -> String
 msgToString (Msg ctx l) = let n = show ctx in n ++ take (l-length n) (' ' : cycle n)
+msgToString (MsgRMAH bs) = "rmaH "++B8.unpack bs
+msgToString (MsgRMARead ctx) = "rmaRead "++show ctx
+msgToString (MsgRMAWrite ctx) = "rmaWrite "++show ctx
 
 
 -- | Initializes communication with the driver process.

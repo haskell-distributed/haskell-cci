@@ -19,30 +19,40 @@
 -- Worker processes are spawned by the driver process.
 --
 -- See test/test_cci.hs for an example of driver process.
+{-# LANGUAGE ForeignFunctionInterface   #-}
 
 import Prelude hiding          ( catch )
 import Control.Exception       ( catch, SomeException )
 import Control.Monad           ( when )
-import Data.ByteString         ( ByteString )
-import qualified Data.ByteString as B    ( concat, length )
-import Data.ByteString.Lazy    ( toChunks, fromChunks )
-import qualified Data.ByteString.Char8 as B8 ( unpack, pack )
 import Data.Binary             ( decode, encode )
-import Data.Char               ( isDigit )
-import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef )
-import qualified Data.Map as M ( empty, lookup, insert )
+import Data.ByteString         ( ByteString )
+import qualified Data.ByteString as B    ( concat, length, null, drop )
+import Data.ByteString.Lazy    ( toChunks, fromChunks )
+import qualified Data.ByteString.Char8 as B8 ( unpack, pack, break )
+import Data.Char               ( isDigit, isSpace )
+import Data.IORef              ( newIORef, IORef, atomicModifyIORef, readIORef, writeIORef )
+import qualified Data.Map as M ( empty, lookup, insert, delete )
 import Data.Map                ( Map )
+import Data.Maybe              ( isNothing )
 import qualified Data.Set as S ( empty, insert, member, delete )
 import Data.Set      ( Set )
 import qualified Data.IntSet as IS ( empty, IntSet, insert, member )
-import Data.Word               ( Word64, Word8 )
+import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr, Ptr )
+import Foreign.C.String        ( castCharToCChar, castCCharToChar )
+import Foreign.C.Types         ( CInt(..), CChar )
+import Foreign.Storable        ( peek )
+import Foreign.Marshal.Alloc   ( alloca )
+import Foreign.Marshal.Array   ( pokeArray, peekArray )
 import System.IO               ( hPutStrLn, stderr )
 
 import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
                                , endpointURI, pollWithEventData, RMALocalHandle, RMARemoteHandle
+                               , RMA_MODE(..), RMALocalHandle, RMARemoteHandle, rmaRegister
+                               , rmaHandle2ByteString, createRMARemoteHandle, Endpoint, rmaWrite
+                               , rmaRead
                                )
 
 import Commands                ( initCommands,readCommand, msgToString
@@ -95,17 +105,17 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                sendResponse Idle >> go
 
            WaitConnection cid -> do
-                        waitConnection rcm rcrs ep cid
+                        waitConnection rmar rcm rcrs ep cid
                         sendResponse Idle
                         go
 
            WaitSendCompletion cid sid -> do
-                        waitSendCompletion rcm rcrs ep cid sid
+                        waitSendCompletion rmar rcm rcrs ep cid sid
                         sendResponse Idle
                         go
 
            WaitRecv cid rid -> do
-                        waitRecv rcm rcrs ep cid rid
+                        waitRecv rmar rcm rcrs ep cid rid
                         sendResponse Idle
                         go
 
@@ -114,34 +124,69 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                         sendResponse Idle
                         go
 
---           RMAHandleExchange cid -> do
-                        
+           RMAHandleExchange cid -> do
+                        h <- createRMALocalHandle ep cid rmar
+                        c <- getConn' cid rcm
+                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) 0 []
+                        sendResponse Idle
+                        go
+
+           RMAWaitExchange cid -> do
+                        waitRMAExchange rmar rcm rcrs ep cid
+                        sendResponse Idle
+                        go
+
+           RMAWrite cid ctx -> do
+               c <- getConn' cid rcm
+               (lh,ptr,n) <- getRMALocalHandle cid rmar
+               Just rh <- getRMARemoteHandle cid rmar
+               pokeArray ptr (map castCharToCChar$ take n$ cycle$ show ctx)
+               rmaWrite c (Just (B8.pack$ "rmaWrite "++show ctx)) rh 0 lh 0 (fromIntegral n) ctx []
+               sendResponse Idle >> go
+
+           RMARead cid ctx -> do
+               ci <- getConnInfo' cid rcm
+               (lh,_,n) <- getRMALocalHandle cid rmar
+               Just rh <- getRMARemoteHandle cid rmar
+               insertConnInfo cid ci { rmaReadIds = IS.insert (fromIntegral ctx) (rmaReadIds ci) } rcm
+               rmaRead (connection ci) (Just (B8.pack$ "rmaRead "++show ctx)) lh 0 rh 0 (fromIntegral n) ctx []
+               sendResponse Idle >> go
+
+           RMAFreeHandles cid -> do
+               freeRMALocalHandle cid rmar
+               sendResponse Idle >> go
 
            Quit -> sendResponse Idle
 
 
-    waitConnection rcm rcrs ep cid = do
+    waitConnection rmar rcm rcrs ep cid = do
             mc <- getConn cid rcm
             case mc of
               Nothing -> do
-                    pollWithEventData ep$ handleEvent rcm rcrs
-                    waitConnection rcm rcrs ep cid
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitConnection rmar rcm rcrs ep cid
 
               _ -> return ()
 
-    waitRecv rcm rcrs ep cid ri = do
+    waitRecv rmar rcm rcrs ep cid ri = do
             ci <- getConnInfo' cid rcm
             when (not$ IS.member (fromIntegral ri)$ recvs ci)$ do
-                    pollWithEventData ep$ handleEvent rcm rcrs
-                    waitRecv rcm rcrs ep cid ri
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitRecv rmar rcm rcrs ep cid ri
 
-    waitSendCompletion rcm rcrs ep cid si = do
+    waitSendCompletion rmar rcm rcrs ep cid si = do
             ci <- getConnInfo' cid rcm
             when (not$ IS.member (fromIntegral si)$ sendCompletions ci)$ do
-                    pollWithEventData ep$ handleEvent rcm rcrs
-                    waitSendCompletion rcm rcrs ep cid si
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitSendCompletion rmar rcm rcrs ep cid si
 
-    handleEvent rcm rcrs ev = do
+    waitRMAExchange rmar rcm rcrs ep cid = do
+            mr <- getRMARemoteHandle cid rmar
+            when (isNothing mr)$ do
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitRMAExchange rmar rcm rcrs ep cid
+
+    handleEvent rmar rcm rcrs ev = do
             hPutStrLn stderr$ "   event: "++show ev
             case ev of
               EvAccept ctx (Right conn) ->  insertConn ctx conn rcm >> sendResponse (ConnectAccepted ctx)
@@ -155,15 +200,24 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
               EvSend ctx st conn -> do
                       cid <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
-                      insertConnInfo cid (ci { sendCompletions = IS.insert (fromIntegral ctx) (sendCompletions ci) }) rcm
+                      insertConnInfo cid ci { sendCompletions = IS.insert (fromIntegral ctx) (sendCompletions ci) } rcm
+                      when (IS.member (fromIntegral cid) (rmaReadIds ci))$ do
+                          (_,ptr,n) <- getRMALocalHandle cid rmar
+                          checkRMABuffer ptr n ctx
                       sendResponse (SendCompletion cid ctx st) 
 
               EvRecv bs conn -> do 
                       cid   <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
                       bs' <- unsafePackEventBytes bs
-                      let m@(Msg ctx _) = byteStringToMsg bs'
-                      seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
+                      let m = byteStringToMsg bs' 
+                      case m of 
+                        Msg ctx _ -> seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
+                        MsgRMAH rh -> insertRMARemoteHandle cid (maybe (error "handleEvent: MsgRMAH") id$ createRMARemoteHandle rh) rmar
+                        MsgRMAWrite ctx -> do 
+                            (_,ptr,n) <- getRMALocalHandle cid rmar
+                            checkRMABuffer ptr n ctx
+                        MsgRMARead _ -> return ()
                       sendResponse (Recv cid m)
 
               EvConnectRequest e bs cattrs -> do
@@ -182,14 +236,25 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 -- loopWhileM p io = io >>= \a -> if p a then loopWhileM p io else return a
 
 byteStringToMsg :: ByteString -> Msg
-byteStringToMsg bs = let (ctxs,rest) = break (not . isDigit)$ B8.unpack bs
-                      in if not (null ctxs) && wellFormed ctxs rest
-                           then Msg (read ctxs) (B.length bs)
-                           else error$ "error parsing message "++ctxs++" (length: "++show (B.length bs)++"): "++rest
+byteStringToMsg bs = let (ctxs,rest) = B8.break isSpace bs
+                      in if not (B.null ctxs) && wellFormed (B8.unpack ctxs) (B8.unpack rest)
+                           then case B8.unpack ctxs of
+                                  "rmaH"     -> MsgRMAH$ B.drop 1 rest
+                                  "rmaRead"  -> MsgRMARead$ read$ drop 1$ B8.unpack rest
+                                  "rmaWrite" -> MsgRMAWrite$ read$ drop 1$ B8.unpack rest
+                                  _          -> Msg (read$ B8.unpack ctxs) (B.length bs)
+                           else error$ "error parsing message "++show ctxs++" (length: "++show (B.length bs)++"): "++show rest
   where
-    wellFormed ctx (' ':rs) = and$ zipWith (==) (cycle ctx) rs
+    wellFormed "rmaH" (' ':rs) = length rs==8
+    wellFormed "rmaRead" (' ':rs) = all isDigit rs
+    wellFormed "rmaWrite" (' ':rs) = all isDigit rs
+    wellFormed ctx (' ':rs) | all isDigit ctx = and$ zipWith (==) (cycle ctx) rs
     wellFormed _ _ = False
 
+checkRMABuffer :: Ptr CChar -> Int -> WordPtr -> IO ()
+checkRMABuffer ptr n ctx = do
+    msg <- fmap (map castCCharToChar)$ peekArray n ptr
+    when (msg/= (take n$ cycle$ show ctx))$ ioError$ userError$ "checkRMABuffer: "++msg
 
 -- Map of connection requests
 
@@ -233,6 +298,7 @@ type ConnMap = IORef (Map WordPtr ConnectionInfo,Map Connection WordPtr)
 data ConnectionInfo = ConnInfo
     { connection :: Connection
     , sendCompletions :: IS.IntSet
+    , rmaReadIds :: IS.IntSet
     , recvs :: IS.IntSet
     }
 
@@ -253,6 +319,7 @@ getConnInfo' w rcm = getConnInfo w rcm >>= maybe (do
 getConn :: WordPtr -> ConnMap -> IO (Maybe Connection)
 getConn w rcm = getConnInfo w rcm >>= return . fmap connection
 
+-- | Fails with an error if the connection is not in the map.
 getConn' :: WordPtr -> ConnMap -> IO Connection
 getConn' w rcm = getConn w rcm >>= maybe (do
                                      sendResponse (Error$ "unknown connection: "++show w)
@@ -269,7 +336,7 @@ getConnId c rcm =
         . M.lookup c . snd
 
 insertConn :: WordPtr -> Connection -> ConnMap -> IO ()
-insertConn w c rcm = insertConnInfo w (ConnInfo c IS.empty IS.empty) rcm
+insertConn w c rcm = insertConnInfo w (ConnInfo c IS.empty IS.empty IS.empty) rcm
 
 insertConnInfo :: WordPtr -> ConnectionInfo -> ConnMap -> IO ()
 insertConnInfo w ci rcm = atomicModifyIORef rcm $ \(wc,cw) -> ((M.insert w ci wc, M.insert (connection ci) w cw),())
@@ -280,18 +347,66 @@ insertConnInfo w ci rcm = atomicModifyIORef rcm $ \(wc,cw) -> ((M.insert w ci wc
 
 data RMAState = RMAState 
     { reused :: Set WordPtr
-    , localHandles :: [(RMALocalHandle,Ptr Word8,Int)]
-    , remoteHandles :: Map WordPtr (RMARemoteHandle,RMALocalHandle)
+    , reservedLocalHandles :: Map WordPtr (RMALocalHandle,Ptr CChar,Int)
+    , availableHandles :: [(RMALocalHandle,Ptr CChar,Int)]
+    , remoteHandles :: Map WordPtr RMARemoteHandle
     }
 
 emptyRMAState :: IO (IORef RMAState)
 emptyRMAState = newIORef RMAState 
     { reused        = S.empty
-    , localHandles  = []
+    , availableHandles  = []
     , remoteHandles = M.empty
+    , reservedLocalHandles = M.empty
     }
 
 markReuseRMAH :: WordPtr -> IORef RMAState -> IO ()
 markReuseRMAH w r = atomicModifyIORef r (\rmas -> (rmas { reused = S.insert w (reused rmas) },()))
 
+
+createRMALocalHandle :: Endpoint -> WordPtr -> IORef RMAState -> IO RMALocalHandle
+createRMALocalHandle ep cid rmar = do
+    rmas <- readIORef rmar
+    let h@(lh',_,_):hss = availableHandles rmas
+    lh <- if S.member cid (reused rmas) && not (null$ availableHandles rmas)
+      then do
+        writeIORef rmar 
+            rmas { reused = S.delete cid (reused rmas)
+                 , availableHandles = hss
+                 , reservedLocalHandles = M.insert cid h (reservedLocalHandles rmas)
+                 }
+        return lh'
+
+      else do
+        ptr <- alloca$ \pptr -> posix_memalign pptr 4096 4096 >> peek pptr
+        lh <- rmaRegister ep (ptr,4096) RMA_READ_WRITE
+        writeIORef rmar 
+            rmas { reservedLocalHandles = M.insert cid (lh,ptr,4096) (reservedLocalHandles rmas)
+                 }
+        return lh
+
+    return lh
+ 
+insertRMARemoteHandle :: WordPtr -> RMARemoteHandle -> IORef RMAState -> IO ()
+insertRMARemoteHandle cid rh rmar = do
+    atomicModifyIORef rmar$ \rmas -> ( rmas { remoteHandles = M.insert cid rh (remoteHandles rmas) } , ())
+
+getRMARemoteHandle :: WordPtr -> IORef RMAState -> IO (Maybe RMARemoteHandle)
+getRMARemoteHandle cid rmar = readIORef rmar >>= return . M.lookup cid . remoteHandles
+  
+getRMALocalHandle :: WordPtr -> IORef RMAState -> IO (RMALocalHandle,Ptr CChar,Int)
+getRMALocalHandle cid rmar = readIORef rmar >>= return . maybe (error "getRMALocalHandle") id . M.lookup cid . reservedLocalHandles
+  
+freeRMALocalHandle :: WordPtr -> IORef RMAState -> IO ()
+freeRMALocalHandle cid rmar = atomicModifyIORef rmar$ \rmas ->
+    let h = maybe (error "freeRMALocalHandle") id$ M.lookup cid (reservedLocalHandles rmas)
+     in ( rmas { availableHandles = availableHandles rmas ++ [ h ] 
+               , reservedLocalHandles = M.delete cid (reservedLocalHandles rmas)
+               , remoteHandles = M.delete cid (remoteHandles rmas)
+               } 
+        , ()
+        )
+
+--  int posix_memalign(void **memptr, size_t alignment, size_t size);
+foreign import ccall "static stdlib.h" posix_memalign :: Ptr (Ptr CChar) -> CInt -> CInt -> IO CInt 
 

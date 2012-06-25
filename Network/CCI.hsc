@@ -874,7 +874,7 @@ instance Enum RMA_FLAG where
 -- which is read or written during RMA operations.
 --
 newtype RMALocalHandle = RMALocalHandle Word64
-  deriving Storable
+  deriving (Storable, Eq)
 
 -- | RMA remote handles have an associated buffer in a remote location
 -- which is read or written during RMA operations.
