@@ -33,6 +33,8 @@ data Command =
     | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
     | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
     | RMARead WordPtr WordPtr                     -- ^ @RMARead conn_id msg_id@ 
+	| RMAWaitWrite WordPtr                        -- ^ @RMAWaitWrite conn_id@
+	| RMAWaitRead  WordPtr                        -- ^ @RMAWaitWrite conn_id@
 	| RMAFreeHandles WordPtr                      -- ^ @RMAFreeHandles conn_id@ releases the handles of a connection.
 
     | Quit

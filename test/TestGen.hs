@@ -49,6 +49,7 @@ data TestConfig = TestConfig
     , nMaxMsgLen :: Int -- ^ Maximum length of active messages
     , nPerProcessInteractions :: Int -- ^ Number of interactions per process
     , withValgrind :: Bool -- ^ Run tests with valgrind.
+    , testRMA    :: Bool -- ^ Test rma operations
     }
  deriving (Show,Data,Typeable)
 
@@ -62,6 +63,7 @@ defaultTestConfig = TestConfig
     , nMaxMsgLen = 16
     , nPerProcessInteractions = 2
     , withValgrind = False
+    , testRMA = False
     }
 
 type TestError = ([ProcCommand],[[Response]],String)
@@ -158,6 +160,7 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
     cciStatement cmd = text "" $$ text ("unknown command: " ++ show cmd ++";")
 
     msgLen (Msg _ l) = l
+    msgLen _ = error "generateCTest: unexpected message"
 
     wrapProcCmds cs@((i,_):_) = 
              text ("void process"++show i++"(proc_t* p) {")
@@ -351,8 +354,12 @@ genInteraction c p0 p1 = do
     mt <- getRandomTimeout
     cid <- generateConnectionId
     sends <- genSends cid p0 p1 1 1 1
+    cmds <- if testRMA c then do
+                 rmaOps <- genRMAInteraction cid p0 p1
+                 mergeI sends rmaOps
+             else return sends
     return$ (i,([p1],Accept cid)):
-       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : sends
+       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : cmds ++ [ ([p0],Disconnect cid) ]
                          )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
   where
     getRandomTimeout = do
@@ -364,7 +371,7 @@ genInteraction c p0 p1 = do
     genSends cid p0 p1 w0 w1 mid | mid-1 >= nSends c = return$ 
                [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
                ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1] ]
-               ++ [ ([p0],Disconnect cid) ]
+               
     genSends cid p0 p1 w0 w1 mid = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
@@ -379,6 +386,9 @@ genInteraction c p0 p1 = do
         rest <- genSends cid p0 p1 w0' w1' (mid+1)
         return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
 
+    genRMAInteraction :: WordPtr -> Int -> Int -> CommandGen [ProcCommand]
+    genRMAInteraction cid p0 p1 = do
+        return$ ([p0],RMAHandleExchange cid) : ([p1],RMAHandleExchange cid) : ([p0,p1],RMAWaitExchange cid) : ([p0],RMAFreeHandles cid) : ([p1],RMAFreeHandles cid) : []
 
 
 -- A monad for processes

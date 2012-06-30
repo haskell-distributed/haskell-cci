@@ -28,7 +28,8 @@ props = do
                                      intopt "Amount of interactions each process initiates during a test" (nPerProcessInteractions defaultTestConfig)
                                      &= name "nPerProcRuns" &= explicit
                               , nErrors= intopt "Amount of errors to collect before stopping testing" (nErrors defaultTestConfig)
-                              , withValgrind = boolopt "Run tests with valgrind." (withValgrind defaultTestConfig) &= name "with-valgrind" &= explicit
+                              , withValgrind = boolopt "Run tests with valgrind" (withValgrind defaultTestConfig) &= name "with-valgrind" &= explicit
+                              , testRMA = False -- boolopt "Test rma operations" (testRMA defaultTestConfig) &= name "test-rma" &= explicit
                               }
                                 &= summary "CCI test generator v0.0.1, (C) Parallel Scientific 2012"
                                 &= details ["See test/README for details."]
@@ -44,7 +45,7 @@ props = do
                 ]
     when (not (null errs))$ exitFailure
   where
-    isSendCompletion (SendCompletion _ _ _) = True
+    isSendCompletion (SendCompletion _ mid _) = mid>0
     isSendCompletion _ = False
     intopt :: (Default a,Data a,Show a) => String -> a -> a
     intopt s i = i &= help (s++" [default: "++show i++"]") &= opt i
@@ -90,7 +91,7 @@ attachProcDestination = go M.empty
 collectRecvs :: [[Response]] -> [[[Response]]]
 collectRecvs = map (groupWith getConn) . map (filter isRecvResp)
   where
-    isRecvResp (Recv _ _) = True
+    isRecvResp (Recv _ (Msg _ _)) = True
     isRecvResp _ = False
     getConn (Recv cid _) = cid
     getConn _ = error "Props.collectRecvs: unexpected value."

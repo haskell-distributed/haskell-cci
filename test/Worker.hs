@@ -36,7 +36,7 @@ import Data.Map                ( Map )
 import Data.Maybe              ( isNothing )
 import qualified Data.Set as S ( empty, insert, member, delete )
 import Data.Set      ( Set )
-import qualified Data.IntSet as IS ( empty, IntSet, insert, member )
+import qualified Data.IntSet as IS ( empty, IntSet, insert, member, delete )
 import Data.Word               ( Word64 )
 import Foreign.Ptr             ( WordPtr, Ptr )
 import Foreign.C.String        ( castCharToCChar, castCCharToChar )
@@ -152,6 +152,11 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                rmaRead (connection ci) (Just (B8.pack$ "rmaRead "++show ctx)) lh 0 rh 0 (fromIntegral n) ctx []
                sendResponse Idle >> go
 
+           RMAWaitWrite cid -> do
+               waitRMAWrite rmar rcm rcrs ep cid
+               sendResponse Idle
+               go
+
            RMAFreeHandles cid -> do
                freeRMALocalHandle cid rmar
                sendResponse Idle >> go
@@ -180,6 +185,12 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                     pollWithEventData ep$ handleEvent rmar rcm rcrs
                     waitSendCompletion rmar rcm rcrs ep cid si
 
+    waitRMAWrite rmar rcm rcrs ep cid = do
+            written <- testRMAWriteId cid rmar
+            when written$ do
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitRMAWrite rmar rcm rcrs ep cid
+
     waitRMAExchange rmar rcm rcrs ep cid = do
             mr <- getRMARemoteHandle cid rmar
             when (isNothing mr)$ do
@@ -200,8 +211,8 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
               EvSend ctx st conn -> do
                       cid <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
-                      insertConnInfo cid ci { sendCompletions = IS.insert (fromIntegral ctx) (sendCompletions ci) } rcm
-                      when (IS.member (fromIntegral cid) (rmaReadIds ci))$ do
+                      when (ctx/=0)$ insertConnInfo cid ci { sendCompletions = IS.insert (fromIntegral ctx) (sendCompletions ci) } rcm
+                      when (ctx==0 && IS.member (fromIntegral cid) (rmaReadIds ci))$ do
                           (_,ptr,n) <- getRMALocalHandle cid rmar
                           checkRMABuffer ptr n ctx
                       sendResponse (SendCompletion cid ctx st) 
@@ -217,6 +228,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                         MsgRMAWrite ctx -> do 
                             (_,ptr,n) <- getRMALocalHandle cid rmar
                             checkRMABuffer ptr n ctx
+                            insertRMAWriteId cid rmar
                         MsgRMARead _ -> return ()
                       sendResponse (Recv cid m)
 
@@ -350,6 +362,7 @@ data RMAState = RMAState
     , reservedLocalHandles :: Map WordPtr (RMALocalHandle,Ptr CChar,Int)
     , availableHandles :: [(RMALocalHandle,Ptr CChar,Int)]
     , remoteHandles :: Map WordPtr RMARemoteHandle
+    , rmaWritesIds :: IS.IntSet
     }
 
 emptyRMAState :: IO (IORef RMAState)
@@ -358,6 +371,7 @@ emptyRMAState = newIORef RMAState
     , availableHandles  = []
     , remoteHandles = M.empty
     , reservedLocalHandles = M.empty
+    , rmaWritesIds = IS.empty 
     }
 
 markReuseRMAH :: WordPtr -> IORef RMAState -> IO ()
@@ -406,6 +420,15 @@ freeRMALocalHandle cid rmar = atomicModifyIORef rmar$ \rmas ->
                } 
         , ()
         )
+
+insertRMAWriteId :: WordPtr -> IORef RMAState -> IO ()
+insertRMAWriteId cid rmar = atomicModifyIORef rmar (\rmas -> (rmas { rmaWritesIds = IS.insert (fromIntegral cid) (rmaWritesIds rmas) }, ()))
+
+testRMAWriteId :: WordPtr -> IORef RMAState -> IO Bool
+testRMAWriteId cid rmar = atomicModifyIORef rmar (\rmas -> (rmas { rmaWritesIds = IS.delete (fromIntegral cid) (rmaWritesIds rmas) }
+                                                           , IS.member (fromIntegral cid)$ rmaWritesIds rmas
+                                                           )
+                                                 )
 
 --  int posix_memalign(void **memptr, size_t alignment, size_t size);
 foreign import ccall "static stdlib.h" posix_memalign :: Ptr (Ptr CChar) -> CInt -> CInt -> IO CInt 
