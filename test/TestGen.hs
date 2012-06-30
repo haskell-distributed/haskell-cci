@@ -296,7 +296,7 @@ getRandomR = modifyR . randomR
 
 -- | Merges two interactions by randomly interleaving the commands. The 
 -- order of the commands in each interaction is preserved.
-mergeI :: Interaction -> Interaction -> CommandGen Interaction
+mergeI :: [a] -> [a] -> CommandGen [a]
 mergeI xs [] = return xs
 mergeI [] ys = return ys
 mergeI i0 i1 = if l0<=l1 then mergeI' i0 l0 i1 l1 else mergeI' i1 l1 i0 l0
@@ -304,7 +304,7 @@ mergeI i0 i1 = if l0<=l1 then mergeI' i0 l0 i1 l1 else mergeI' i1 l1 i0 l0
     l0 = length i0
     l1 = length i1
 
-mergeI' :: Interaction -> Int -> Interaction -> Int -> CommandGen Interaction
+mergeI' :: [a] -> Int -> [a] -> Int -> CommandGen [a]
 mergeI' i0 l0 i1 l1 = do
     iss <- replicateM l0$ getRandomR (0,l0+l1)
     let (i:is) = sort iss
@@ -350,7 +350,7 @@ genInteraction c p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid p0 p1 0 0 0
+    sends <- genSends cid p0 p1 1 1 1
     return$ (i,([p1],Accept cid)):
        (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : sends
                          )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
@@ -361,7 +361,7 @@ genInteraction c p0 p1 = do
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
     genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends cid p0 p1 w0 w1 mid | mid >= nSends c = return$ 
+    genSends cid p0 p1 w0 w1 mid | mid-1 >= nSends c = return$ 
                [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
                ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1] ]
                ++ [ ([p0],Disconnect cid) ]
@@ -377,7 +377,7 @@ genInteraction c p0 p1 = do
                              then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1]  ] ,mid) 
                              else ([],w1)
         rest <- genSends cid p0 p1 w0' w1' (mid+1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral (mid+1)) (Msg (fromIntegral (1+mid)) msgLen)) : rest
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
 
 
 
