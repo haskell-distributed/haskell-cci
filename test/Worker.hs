@@ -224,12 +224,12 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                       let m = byteStringToMsg bs' 
                       case m of 
                         Msg ctx _ -> seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
+                        MsgRMARead ctx -> seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
                         MsgRMAH rh -> insertRMARemoteHandle cid (maybe (error "handleEvent: MsgRMAH") id$ createRMARemoteHandle rh) rmar
                         MsgRMAWrite ctx -> do 
                             (_,ptr,n) <- getRMALocalHandle cid rmar
                             checkRMABuffer ptr n ctx
                             insertRMAWriteId cid rmar
-                        MsgRMARead _ -> return ()
                       sendResponse (Recv cid m)
 
               EvConnectRequest e bs cattrs -> do

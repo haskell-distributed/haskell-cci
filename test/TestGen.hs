@@ -353,7 +353,7 @@ genInteraction c p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid p0 p1 1 1 1
+    sends <- genSends cid p0 p1 1 1
     cmds <- if testRMA c then do
                  rmaOps <- genRMAInteraction cid p0 p1
                  mergeI sends rmaOps
@@ -367,28 +367,53 @@ genInteraction c p0 p1 = do
         if b then return Nothing
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends cid p0 p1 w0 w1 mid | mid-1 >= nSends c = return$ 
+    genSends :: WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genSends = genMsgs (nSends c) [] (return (\cid mid mlen -> Send cid mid (Msg mid mlen),WaitRecv))
+
+    genMsgs :: Int -> [ProcCommand]
+            -> CommandGen (WordPtr->WordPtr->Int->Command, WordPtr->WordPtr->Command)
+            -> WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genMsgs nMsgs waits _ cid p0 _p1 w0 mid | mid-1 >= nMsgs = return$ 
                [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
-               ++ [ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1] ]
+               ++ waits
                
-    genSends cid p0 p1 w0 w1 mid = do
+    genMsgs nMsgs waits cmds cid p0 p1 w0 mid = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
+        (sendCmd,waitRcvCmd) <- cmds
         msgLen <- getRandomR (nMinMsgLen c,nMaxMsgLen c) 
 
         let (waits0,w0') = if insertWaits0 
                              then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ], mid) 
                              else ([],w0)
-            (waits1,w1') = if insertWaits1 
-                             then ([ ([p1],WaitRecv cid (fromIntegral rid)) | rid <- [w1..mid-1]  ] ,mid) 
-                             else ([],w1)
-        rest <- genSends cid p0 p1 w0' w1' (mid+1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
+            waits' = (if insertWaits1 then [] else waits)++[([p1],waitRcvCmd cid (fromIntegral mid))]
+            waits1 = if insertWaits1 then waits else []
+        rest <- genMsgs nMsgs waits' cmds cid p0 p1 w0' (mid+1)
+        return$ waits0 ++ waits1 ++ ([p0],sendCmd cid (fromIntegral mid) msgLen) : rest
 
     genRMAInteraction :: WordPtr -> Int -> Int -> CommandGen [ProcCommand]
     genRMAInteraction cid p0 p1 = do
-        return$ ([p0],RMAHandleExchange cid) : ([p1],RMAHandleExchange cid) : ([p0,p1],RMAWaitExchange cid) : ([p0],RMAFreeHandles cid) : ([p1],RMAFreeHandles cid) : []
+        b0 <- getRandom
+        b1 <- getRandom
+        let maybeReuse = (if b0 then (([p0],RMAReuseRMAHandle cid):) else id) 
+                       . (if b1 then (([p1],RMAReuseRMAHandle cid):) else id)
+        sends <- genRMAMsgs cid p0 p1 (nSends c+1) (nSends c+1)
+        return$ maybeReuse$ ([p0],RMAHandleExchange cid) 
+                          : ([p1],RMAHandleExchange cid) : ([p0,p1],RMAWaitExchange cid) 
+                          : sends
+                          ++ ([p0],RMAFreeHandles cid) : ([p1],RMAFreeHandles cid) : []
+
+    genRMAMsgs :: WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genRMAMsgs = genMsgs (2*nSends c) []$ do
+        genWrite <- getRandom
+        return$ if genWrite then
+            (\cid mid _mlen -> RMAWrite cid mid
+            ,\cid _ -> RMAWaitWrite cid
+            )
+          else 
+            (\cid mid _mlen -> RMARead cid mid
+            ,WaitRecv
+            )
 
 
 -- A monad for processes
