@@ -8,27 +8,25 @@ CCI API:
 
 == Building cci ==
 
-# Install latest cci first. You'll have to request it at:
-http://www.olcf.ornl.gov/center-projects/common-communication-interface/
-# or via the mailing list:
-http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
+# Install latest cci first. You can get it from:
+http://cci-forum.com/
 
+# Then build the bindings:
 cabal configure -f "examples tests"
 cabal build
 
-If cci is in a non-standard folder:
-
-cabal config -f tests --extra-lib-dirs=/path/to/cci/lib
+# If CCI is not in a standard folder:
+cabal configure -f "examples tests" --extra-lib-dirs=/path/to/cci/lib/folder
 cabal build
 
-And for running programs:
-
-LD_LIBRARY_PATH=/path/to/cci/lib some_program
+# Then programs can be run with
+LD_LIBRARY_PATH=/path/to/cci/lib/folder some_program
 
 
 # to generate documentation
-cabal install # fixes error "cabal: Can't find deps for haddock" which would
-              # otherwise happen when running "cabal haddock".
+cabal configure # remove the flags -f "tests examples" to avoid the error
+                # "cabal: Can't find transitive deps for haddock"
+                # which would otherwise happen when running "cabal haddock".
 cabal haddock
 
 
@@ -45,32 +43,6 @@ dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
 # Start the client using active messages
 dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
 
-
-== Building cci statically ==
-
-This procedure builds cci statically due to some issues we had in
-the past when making ORNL CCI into a shared library. These issues have
-been solved now, but we keep the procedure just in case.
-
-This built can use only one driver. You can pass either static-verbs
-below if you want to use the verbs driver, or static-sock if you want
-to use the sock driver instead. No other drivers are possible to use
-this way.
-
-# Get ORNL CCI.
-# For parsci folks, this can be achieved by issuing:
-git clone git@git.assembla.com:cci-ornl.git cci
-
-# For the rest of the world, you have to request access to a recent copy of the 
-# cci library to ORNL:
-http://www.olcf.ornl.gov/center-projects/common-communication-interface/
-# or via the mailing list:
-http://lists.cci-forum.com/listinfo.cgi/cci-users-cci-forum.com
-
-
-cabal configure -f "examples tests static-verbs"
-
-cabal build
 
 == Running tests ==
 

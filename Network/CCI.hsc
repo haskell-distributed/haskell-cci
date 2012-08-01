@@ -722,9 +722,9 @@ foreign import ccall unsafe cci_rma_register :: Ptr EndpointV
 
 -- | Mode for registered handles.
 data RMA_MODE =
-      RMA_READ        -- | Handle can be read by other endpoints.
-    | RMA_WRITE       -- | Handle can be written by other endpoints.
-    | RMA_READ_WRITE  -- | Handle can be both read and written by other endpoints.
+      RMA_READ        -- ^ Handle can be read by other endpoints.
+    | RMA_WRITE       -- ^ Handle can be written by other endpoints.
+    | RMA_READ_WRITE  -- ^ Handle can be both read and written by other endpoints.
 
 
 instance Enum RMA_MODE where
