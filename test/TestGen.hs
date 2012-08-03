@@ -4,6 +4,9 @@
 -- See the accompanying COPYING file for license information.
 --
 
+-- | This module implements machinery to generate test cases
+-- for the CCI Haskell bindings.
+--
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 module TestGen
@@ -89,7 +92,7 @@ testProp c onError f = go (mkStdGen 0) [] (nErrors c) (nTries c)
       let tr' = map snd tr
       me <- testCommands c tr' f
       case me of
-        Just err -> do err' <- shrink c tr err f
+        Just err -> do err' <- shrink c [SrkRemoveInteraction] tr err f
                        onError err' (length errors)
                        go g' (err':errors) (errCount-1) (tryCount-1)
         Nothing  -> go g' errors errCount (tryCount-1)
@@ -106,12 +109,17 @@ testCommands c t f = do
                            else return$ Just (t,rss,"failed props: " ++ show (map fst (filter (not . snd) res)))
 
 
+-- | Shrinking operations that are available to reduce a command sequence.
+data ShrinkOperation = SrkRemoveInteraction | SrkRemoveMessages
+ deriving Eq
+
 -- | Provides the possible ways to reduce a command sequence.
-shrinkCommands :: Interaction -> [Interaction]
-shrinkCommands tr =
-    let is = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
-     in if null is then filter (not . null) [ removeSend tr ]
-          else is
+shrinkCommands :: [ShrinkOperation] -> Interaction -> [Interaction]
+shrinkCommands sops tr =
+    let op0 = filter (not.null) [ filter ((i/=) . fst) tr  |  i<-nub (map fst tr) ]
+        op1 = filter (not . null) [ removeSend tr ] 
+     in (if SrkRemoveInteraction `elem` sops then op0 else [])
+        ++ (if SrkRemoveMessages `elem` sops then op1 else [])
   where
     removeSend tr = reverse$
         case break isSend (reverse tr) of
@@ -127,21 +135,23 @@ shrinkCommands tr =
     isWaitRecv ps c sid (_,(ps',WaitRecv c' sid')) = c==c' && sid==sid' && null (intersect ps ps')
     isWaitRecv _ _ _ _ = False
 
+
 -- | Shrinks a command sequence as much as possible while preserving a faulty behavior
 -- with respect to the provided predicate.
-shrink :: TestConfig -> Interaction -> TestError -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO TestError
-shrink c tr err f = go (shrinkCommands tr)
+shrink :: TestConfig -> [ShrinkOperation] -> Interaction -> TestError -> ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> IO TestError
+shrink c sops tr err f = go (shrinkCommands sops tr)
   where
-    go []       = return err 
+    go [] | SrkRemoveInteraction `elem` sops = shrink c [SrkRemoveMessages] tr err f
+    go []        = return err 
     go (tr':trs) = do
         me <- testCommands c (map snd tr') f 
         case me of
-          Just err' -> shrink c tr' err' f
+          Just err' -> shrink c sops tr' err' f
           Nothing   -> go trs
 
 
 runCommands :: [ProcCommand] -> IO [[Response]]
-runCommands t = fmap snd$ runProcessM (defaultTestConfig { nProcesses = (1 + maximum (concatMap fst t)) })$ runProcs t
+runCommands t = fmap snd$ runProcessM (defaultTestConfig { nProcesses = (1 + maximum (concatMap fst t)), withValgrind = False })$ runProcs t
 
 
 generateCTest :: [ProcCommand] -> String
@@ -353,7 +363,7 @@ genInteraction c p0 p1 = do
     i <- generateInterationId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends cid p0 p1 1 1
+    sends <- genSends [] cid p0 p1 1 1
     cmds <- if testRMA c then do
                  rmaOps <- genRMAInteraction cid p0 p1
                  mergeI sends rmaOps
@@ -367,29 +377,23 @@ genInteraction c p0 p1 = do
         if b then return Nothing
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends = genMsgs (nSends c) [] (return (\cid mid mlen -> Send cid mid (Msg mid mlen),WaitRecv))
-
-    genMsgs :: Int -> [ProcCommand]
-            -> CommandGen (WordPtr->WordPtr->Int->Command, WordPtr->WordPtr->Command)
-            -> WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genMsgs nMsgs waits _ cid p0 _p1 w0 mid | mid-1 >= nMsgs = return$ 
+    genSends :: [ProcCommand] -> WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genSends waits cid p0 _p1 w0 mid | mid-1 >= nSends c = return$ 
                [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
-               ++ waits
+               ++ reverse waits
                
-    genMsgs nMsgs waits cmds cid p0 p1 w0 mid = do
+    genSends waits cid p0 p1 w0 mid = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
-        (sendCmd,waitRcvCmd) <- cmds
         msgLen <- getRandomR (nMinMsgLen c,nMaxMsgLen c) 
 
         let (waits0,w0') = if insertWaits0 
                              then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ], mid) 
                              else ([],w0)
-            waits' = (if insertWaits1 then [] else waits)++[([p1],waitRcvCmd cid (fromIntegral mid))]
-            waits1 = if insertWaits1 then waits else []
-        rest <- genMsgs nMsgs waits' cmds cid p0 p1 w0' (mid+1)
-        return$ waits0 ++ waits1 ++ ([p0],sendCmd cid (fromIntegral mid) msgLen) : rest
+            waits' = ([p1],WaitRecv cid (fromIntegral mid)) : if insertWaits1 then [] else waits
+            waits1 = if insertWaits1 then reverse waits else []
+        rest <- genSends waits' cid p0 p1 w0' (mid+1)
+        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
 
     genRMAInteraction :: WordPtr -> Int -> Int -> CommandGen [ProcCommand]
     genRMAInteraction cid p0 p1 = do
@@ -397,23 +401,27 @@ genInteraction c p0 p1 = do
         b1 <- getRandom
         let maybeReuse = (if b0 then (([p0],RMAReuseRMAHandle cid):) else id) 
                        . (if b1 then (([p1],RMAReuseRMAHandle cid):) else id)
-        sends <- genRMAMsgs cid p0 p1 (nSends c+1) (nSends c+1)
+        sends <- genRMAMsgs [] cid p0 p1 (nSends c+1)
         return$ maybeReuse$ ([p0],RMAHandleExchange cid) 
                           : ([p1],RMAHandleExchange cid) : ([p0,p1],RMAWaitExchange cid) 
                           : sends
                           ++ ([p0],RMAFreeHandles cid) : ([p1],RMAFreeHandles cid) : []
 
-    genRMAMsgs :: WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genRMAMsgs = genMsgs (2*nSends c) []$ do
+    genRMAMsgs :: [ProcCommand] -> WordPtr -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genRMAMsgs waits _cid _p0 _p1 mid | mid-1 >= (2*nSends c) = return$ reverse waits
+               
+    genRMAMsgs waits cid p0 p1 mid = do
         genWrite <- getRandom
-        return$ if genWrite then
-            (\cid mid _mlen -> RMAWrite cid mid
-            ,\cid _ -> RMAWaitWrite cid
-            )
-          else 
-            (\cid mid _mlen -> RMARead cid mid
-            ,WaitRecv
-            )
+        insertWaits <- return True -- getRandom 
+
+        let waits' = ([p0,p1],(if genWrite then RMAWaitWrite
+                                 else RMAWaitRead) cid (fromIntegral mid))
+                       : if insertWaits then [] else waits
+            waits1 = if insertWaits then reverse waits else []
+        rest <- genRMAMsgs waits' cid p0 p1 (mid+1)
+        let sendCmd = if genWrite then RMAWrite else RMARead
+            prepareRead = if genWrite then [] else [([p1],RMAPrepareRead cid (fromIntegral mid))]
+        return$ waits1 ++ prepareRead ++ ([p0],sendCmd cid (fromIntegral mid)) : rest
 
 
 -- A monad for processes

@@ -1,3 +1,12 @@
+//
+// Copyright (C) 2012 Parallel Scientific. All rights reserved.
+//
+// See the accompanying COPYING file for license information.
+//
+// This file provides an implementantion of auxiliary routines 
+// necessary for reproducing failing CCI test cases in C.
+//
+
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -307,7 +316,7 @@ void read_msg(proc_t* p,char msg[100]) {
 
     strcpy(msg,p->rbuf);
     p->rcount -= null+1 - p->rbuf;
-    memcpy(p->rbuf,null+1,p->rcount);
+    memmove(p->rbuf,null+1,p->rcount);
 }
 
 void write_msg(proc_t* p,const char* msg) {

@@ -32,9 +32,10 @@ data Command =
                                                   -- given process through the driver.
     | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
     | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
+	| RMAPrepareRead WordPtr WordPtr              -- ^ @RMAPrepareRead conn_id msg_id@ writes the rma buffer with predefined data for an rma operation.
     | RMARead WordPtr WordPtr                     -- ^ @RMARead conn_id msg_id@ 
-	| RMAWaitWrite WordPtr                        -- ^ @RMAWaitWrite conn_id@
-	| RMAWaitRead  WordPtr                        -- ^ @RMAWaitWrite conn_id@
+	| RMAWaitWrite WordPtr WordPtr                -- ^ @RMAWaitWrite conn_id msg_id@
+	| RMAWaitRead WordPtr WordPtr                 -- ^ @RMAWaitRead conn_id msg_id@
 	| RMAFreeHandles WordPtr                      -- ^ @RMAFreeHandles conn_id@ releases the handles of a connection.
 
     | Quit

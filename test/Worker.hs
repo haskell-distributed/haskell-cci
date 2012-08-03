@@ -52,7 +52,7 @@ import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttri
                                , endpointURI, pollWithEventData, RMALocalHandle, RMARemoteHandle
                                , RMA_MODE(..), RMALocalHandle, RMARemoteHandle, rmaRegister
                                , rmaHandle2ByteString, createRMARemoteHandle, Endpoint, rmaWrite
-                               , rmaRead
+                               , rmaRead, packEventBytes
                                )
 
 import Commands                ( initCommands,readCommand, msgToString
@@ -69,8 +69,8 @@ sendResponse r = hPutStrLn stderr ("response: "++show r) >> C.sendResponse r
 
 main :: IO ()
 main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeException))$ do
-   initCommands
-   withCCI$ do
+  initCommands
+  withCCI$ do
     rcm <- emptyConnMap
     rcrs <- emptyConnReq
     rmar <- emptyRMAState
@@ -136,6 +136,11 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                         sendResponse Idle
                         go
 
+           RMAPrepareRead cid ctx -> do
+               (_,ptr,n) <- getRMALocalHandle cid rmar
+               pokeArray ptr (map castCharToCChar$ take n$ cycle$ show ctx)
+               sendResponse Idle >> go
+
            RMAWrite cid ctx -> do
                c <- getConn' cid rcm
                (lh,ptr,n) <- getRMALocalHandle cid rmar
@@ -152,8 +157,13 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                rmaRead (connection ci) (Just (B8.pack$ "rmaRead "++show ctx)) lh 0 rh 0 (fromIntegral n) ctx []
                sendResponse Idle >> go
 
-           RMAWaitWrite cid -> do
-               waitRMAWrite rmar rcm rcrs ep cid
+           RMAWaitWrite cid ctx -> do
+               waitRMAWrite rmar rcm rcrs ep cid ctx
+               sendResponse Idle
+               go
+
+           RMAWaitRead cid ctx -> do
+               waitRMARead rmar rcm rcrs ep cid ctx
                sendResponse Idle
                go
 
@@ -185,11 +195,19 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                     pollWithEventData ep$ handleEvent rmar rcm rcrs
                     waitSendCompletion rmar rcm rcrs ep cid si
 
-    waitRMAWrite rmar rcm rcrs ep cid = do
+    waitRMAWrite rmar rcm rcrs ep cid si = do
+            ci <- getConnInfo' cid rcm
             written <- testRMAWriteId cid rmar
-            when written$ do
+            when (not written && not (IS.member (fromIntegral si)$ sendCompletions ci))$ do
                     pollWithEventData ep$ handleEvent rmar rcm rcrs
-                    waitRMAWrite rmar rcm rcrs ep cid
+                    waitRMAWrite rmar rcm rcrs ep cid si
+
+    waitRMARead rmar rcm rcrs ep cid si = do
+            ci <- getConnInfo' cid rcm
+            when (not (IS.member (fromIntegral si)$ recvs ci)
+                  && not (IS.member (fromIntegral si)$ sendCompletions ci))$ do
+                    pollWithEventData ep$ handleEvent rmar rcm rcrs
+                    waitRMARead rmar rcm rcrs ep cid si
 
     waitRMAExchange rmar rcm rcrs ep cid = do
             mr <- getRMARemoteHandle cid rmar
@@ -212,7 +230,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                       cid <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
                       when (ctx/=0)$ insertConnInfo cid ci { sendCompletions = IS.insert (fromIntegral ctx) (sendCompletions ci) } rcm
-                      when (ctx==0 && IS.member (fromIntegral cid) (rmaReadIds ci))$ do
+                      when (IS.member (fromIntegral ctx) (rmaReadIds ci))$ do
                           (_,ptr,n) <- getRMALocalHandle cid rmar
                           checkRMABuffer ptr n ctx
                       sendResponse (SendCompletion cid ctx st) 
@@ -220,7 +238,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
               EvRecv bs conn -> do 
                       cid   <- getConnId conn rcm
                       ci <- getConnInfo' cid rcm
-                      bs' <- unsafePackEventBytes bs
+                      bs' <- packEventBytes bs
                       let m = byteStringToMsg bs' 
                       case m of 
                         Msg ctx _ -> seq ctx$ insertConnInfo cid (ci { recvs = IS.insert (fromIntegral ctx) (recvs ci) }) rcm
