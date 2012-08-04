@@ -1,0 +1,415 @@
+
+
+<HEAD>
+<TITLE>SGLIB - A Simple Generic Library for C</TITLE>
+</HEAD>
+
+<br><br><br>
+
+<CENTER>
+<h1>SGLIB - A Simple Generic Library for C
+</CENTER>
+</font>
+
+
+<center> 
+<table border="0" width="80%" cellpadding="9"cellspacing="0"> 
+<tr> 
+<td> <font face="Arial, Helvetica, sans-serif" size="-1">
+
+<center>
+<a HREF="doc/index.html">[Documentation]</a>
+<a HREF="#license">[License]</a>
+<a HREF="#publications">[Publications]</a>
+<a href="http://freshmeat.net/redir/sglib/46015/url_tgz/showfiles.php">[Download]</a>
+<a href="http://lists.sourceforge.net/lists/listinfo/sglib-general">[Feedback]</a>
+</center>
+
+
+<br><br>
+<br><br>
+<br><br>
+
+<h3>1.) What is it about?</H3> 
+
+Sglib is a library defining useful macros for manipulating common
+data structures. 
+The library currently provides generic implementation for:
+<ul>
+<li> sorting arrays
+<li> manipulating linked lists
+<li> manipulating sorted linked lists
+<li> manipulating double linked lists
+<li> manipulating red-black trees
+<li> manipulating hashed containers
+</ul>
+
+A basic set of functions (macros) is provided for each data structure.
+They cover insertion, deletion, search and iterator traversal of
+elements.  Moreover, additional (specific) functions are provided for
+each data structure, such as, concatenation, reverse or sort for
+lists.
+
+<p> Sglib provides algorithms, not data structures. Algorithms
+implemented in Sglib operate on user's types, for example, list macros
+are operational for any data structure containing a pointer to the
+same type.
+
+<p>
+Sglib consists of a single header file without any binary code. In
+order to use it just put <code>#include "sglib.h"</code> into your
+source code.
+
+<p>
+The library is implemented in the C programming language and written
+for C programmers, however it is freely inspired by the Standard
+Template Library.
+
+<p>
+Although I wish to keep the library as simple as possible all 
+suggestions for new functionalities are welcomed. Currently, the
+implementation of queues, priority queues, hashed tables and AVL 
+trees is in progress.
+
+
+
+<br><br>
+<h3>2.) Why is it different from existing C libraries?</h3>
+
+<ul>
+
+<li>
+<h4>Sglib is general.</h4>
+
+Sglib does not require its own data structures.  You do not need to
+design your program to be used with Sglib from the beginning. You can
+start using Sglib at any stage of the development of your project with
+your existing data types.
+
+<p>
+For example, let's suppose that you have a program working on a list of
+historical events represented by the structure:
+
+<pre>
+struct event {
+&nbsp;&nbsp;int time;
+&nbsp;&nbsp;char *title;
+&nbsp;&nbsp;char *description;
+&nbsp;&nbsp;struct category *category;
+&nbsp;&nbsp;struct event *nextEvent;
+};
+</pre>
+
+Let's suppose that you have a list of such events ordered by
+<code>time</code>.  You are supposed to insert a new event to such
+list. First, you need to define a <em>comparator</em>. A comparator is
+a macro or function returning respectively a positive, negative or
+zero value for cases when the first parameter is greater, less or
+equal to the second. For example, the following macro is the
+comparator we need:
+
+<pre>
+#define CMP_EVENT(x,y) (x->time - y->time)
+</pre>
+
+Now you can insert a new event into the list (while keeping the list sorted) 
+with the following code:
+
+<pre>
+<b>SGLIB_SORTED_LIST_ADD(struct event, theList, newEvent, CMP_EVENT, nextEvent);</b>
+</pre>
+
+This macro is expanded into a code inserting the <code>newEvent</code>
+onto the right place of <code>theList</code>. 
+
+<p> 
+Note that the macro is also parameterized by the type of the list,
+the comparator used to order elements and by the name of the field
+pointing to the next element of the list.  In consequence, the macro
+is very general and usable in nearly any circumstances.
+
+
+
+
+
+<li>
+<h4>Sglib is generic.</h4>
+
+Sglib is generic in the sense that each functionality is parametrized
+by the type on which it operates. It defines algorithms independent on
+types.  In C++ this can be done easily using templates, in C this is
+achieved with the preprocessor.  Preprocessor does not matter whether
+macro parameters are types or values.  However, because the
+preprocessor is purely textual and does not respect the underlying
+programming language, an additional effort is required to prevent
+macros from a misuse.
+
+<p>
+For example, let's take 
+a program defining an array of two-dimensional points represented by their coordinates.
+The corresponding definition in C is:
+
+<pre>
+struct point {
+&nbsp;&nbsp; int x;
+&nbsp;&nbsp; int y;
+} thePointArray[SIZE];
+</pre>
+
+and a macro defining lexicographical ordering on points:
+
+<pre>
+#define CMP_POINT(p1,p2) ((p1.x!=p2.x)?(p1.x-p2.x):(p1.y-p2.y))
+</pre>
+
+In such case the following line of code is sorting the array using heap sort:
+
+<pre>
+  <b>SGLIB_ARRAY_SINGLE_HEAP_SORT(struct point, thePointArray, SIZE, CMP_POINT);</b>
+</pre>
+
+Note that no pointers are involved in this implementation.
+
+
+
+
+
+<li>
+<h4>Sglib is fast.</h4>
+
+
+Sglib operates directly on your data structures. It does not require
+an additional pointer stored in its internal data representation. 
+It does not contain any allocations and freeing of internal data structures
+neither.
+Moreover, macros are expanded in compile time saving the overhead
+related to function invocations.
+
+
+
+<li>
+<h4>Sglib is independent on memory management system.</h4>
+
+Sglib does not create/allocate or destruct/free any datas. It only
+manipulates them. For example, macros manipulating balanced trees are
+exclusively modifiying the "left_son" and "right_son" (or whatever
+names user chooses) fields of allocated cells.  In consequence, Sglib
+is absolutely independent on any memory management system.  It never
+calls <code>malloc</code> or similar function.  It is perfectly usable
+in projects requiring high discipline in memory allocation.
+
+
+
+
+<li>
+<h4>Sglib is safe.</h4>
+
+Macros are known as being source of bugs because
+macro parameters may be evaluated several times and
+symbols inside parameters are resolved in the scope where parameters are used, not
+in the scope where the macro is invoked. For example, let's take the macro:
+<pre>
+#define LIST_LEN(type, list, result) {\\
+  int i;\\
+  type l;\\
+  for(i=0,l=list; l!=NULL; l=l->next, i++) ;\\
+  result = i;\\
+}
+</pre>
+invoked in the situation:
+<pre>
+int ilistlen(ilist *l) {
+  int res;
+  LIST_LEN(ilist, l, res);
+  return(res);
+}
+</pre>
+Here, the symbol <code>l</code> in the line <code>LIST_LEN(struct ilist, l, res);</code> is logically 
+expected to be resolved to the formal parameter of the function <code>ilistlen</code>. However
+in reality it is resolved to the local variable <code>l</code>
+defined by the line <code>type l;\</code> inside the macro. This usually provokes compiler to 
+complain about a use of an uninitialized variable.
+
+<p>
+Sglib offers two mechanisms to avoid such problems. 
+<ul>
+<li>First, Sglib is using particular naming conventions.
+All variables defined inside macros begins and ends with <code>_</code> (underscore).
+As it is unusual to use such names in normal code this reduces the risk of conflicts. The above macro
+computing length of a list would be implemented as:
+
+<pre>
+#define LIST_LEN(type, list, result) { \\
+  int _i_; \\
+  type _l_; \\
+  for(_i_=0,_l_=(list); _l_!=NULL; _l_=_l_->next, _i_++) ; \\
+  (result) = _i_; \\
+}
+</pre>
+
+
+<li>
+Second,
+Sglib offers all its functionalities not only in form of macros, but also in form of standard C functions.
+
+<p>
+Internally we call macros as a 
+<em>level - 0</em> user interface and functions as a <em>level - 1</em> user
+interface. The <em>level - 1</em> interface provides legal C functions for each particular
+type and those functions can be called from the main program without
+worrying about unwanted effects due to macro expansions.
+
+<p>
+The <em>level - 1</em> interface in praxis means, that you invoke one large
+macro at the beginning of your program. This macro is parametrized by the type 
+and it generates all available functions for this type. Names of those functions
+will be composed from the prefix <code>sglib_</code> followed by the name of your type
+and finishing by the name of the operation they implement.
+
+<p>
+For example the invocation:
+<pre>
+<b>SGLIB_DEFINE_SORTED_LIST_FUNCTIONS(ilist, ilist_comparator, next)</b>
+</pre>
+is expanded into definitions of functions, such as <code>sglib_ilist_len, sglib_ilist_sort, sglib_ilist_add, sglib_ilist_delete</code>, etc. Those functions take parameter of the type 
+<code>ilist</code> and they use the function (or macro) <code>ilist_comparator</code>
+to compare elements. You can use those functions without worrying about
+macro expansions. For example, the above function computing the length of a list would be:
+<pre>
+int ilistlen(ilist *l) {
+  int res;
+  res = sglib_ilist_len(l);
+  return(res);
+}
+</pre>
+
+Note that there is practically no danger of conflicts when invoking the <code>SGLIB_DEFINE_SORTED_LIST_FUNCTIONS</code>
+macro, because this macro is invoked in the top level scope and because it is using exclusively non-expression
+parameters.
+
+</ul>
+
+
+
+</ul> 
+
+
+
+
+
+<br><br>
+<h3>3.) Why to do it?</H3> 
+
+Everyone knows that the C preprocessor can be used to
+imitate genericity of other languages
+and everyone consider this idea dangerous and ugly.
+I don't. With experiences in my programming praxis I used macros parametrized
+by types more and more often. Finally, I realized that I need
+a really general and well designed generic library. 
+After a research on the Internet I have found only <code>sys/queue.h</code> header which
+was far from what I needed. 
+I was surprised that after 30 years
+of the existence of the C language, in the era of the Internet
+when everyone is doing everything for anybody, nobody
+have written such library. 
+Even if I believed that one day I would find somewhere
+a similar library yet done, I decided to invest my time
+into creation of the Sglib. I have started by collecting all
+macros that I have written for <a href="http://www.xref-tech.com/xrefactory/main.html">Xrefactory</a> 
+giving them a uniform face.
+
+<p>
+In opposition to many cake eaters from my university,
+I believe that ideas behind Sglib are good because of my former research on modern (and generic)
+programming languages and because of my current work on a refactoring browser
+for C. From previous works I know that many generic
+constructions are implemented via some form of preprocessor.  When
+working on the C refactoring browser I have written my own
+C preprocessor. During this work I have
+realized how much the preprocessor is standardized and how precisely
+it is defined in the current ANSI standard. Hence, even very advanced 
+(you may say strange) preprocessor constructions are perfectly portable 
+through compilers implementing ANSI standard.
+
+
+
+
+<a name="publications">
+<br><br>
+
+<h3>4.) Is there any publication or documentation available?</H3>
+
+Sglib comes with full <a href="doc/index.html">reference manual</a>
+in HTML format together with few <a href="doc/index.html#examples">samples</a>.
+<p>For referencing Sglib in any kind of article, please cite:
+
+<pre>
+
+M. Vittek, P. Borovansky, P.E. Moreau: A Simple Generic Library for C, in Reuse of Off-the-Shelf Components: Proceedings of
+ 9th International Conference on Software Reuse, Turin, pp. 423-426, 2006.
+
+</pre>
+or, in bibtex format:
+<pre>
+@Inproceedings{vittekBorovanskyMoreauTurin2006,
+  author =       "Marian Vittek and Peter Borovansky and Pierre-Etienne Moreau",
+  title =        "A Simple Generic Library for C",
+  year =         "2006",
+  pages =        "423-426",
+  booktitle =    { Reuse of Off-the-Shelf Components: ,  Proceedings of 9th International Conference on Software Reuse, Tur
+in, Italy},
+  publisher =    {{Springer}}
+}
+
+</pre>
+
+
+
+<br><br>
+<a name="license">
+<h3>5.) Under what license conditions it comes?</H3>
+
+Basically, I only care that you do not remove the Copyright notice
+from the source code when using Sglib.
+
+<p> More precisely: you can use Sglib or its derivative forms (under
+the condition that the Copyright notice is preserved) in any project,
+whether commercial or not, free of charges. In particular, you can use
+Sglib under the terms of any license defined as an open source license
+by the Open Source Initiative (see http://www.opensource.org/). This
+includes most common open source licenses such as the BSD license and
+GNU GPL.
+
+<p> If you need to use sglib under any particular license conditions,
+contact the author.
+
+
+<br><br>
+<h4>WARRANTY</H4>
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESS OR  IMPLIED,  INCLUDING,  BUT  NOT  LIMITED  TO,  THE  IMPLIED
+WARRANTIES  OF  MERCHANTABILITY,  FITNESS FOR A PARTICULAR PURPOSE, OR
+NON-INFRINGEMENT.
+
+
+<br><br>
+<a name="download">
+<h3>6.) Where to download it?</H3>
+
+
+You can download <a href="http://freshmeat.net/redir/sglib/46015/url_tgz/showfiles.php">sglib</a> together with full 
+documentation from its sourceforge site.
+
+<a name="feedback">
+<h3>7.) Where to post a feedback?</h3>
+
+You can post your feedback to sglib <A href="http://lists.sourceforge.net/lists/listinfo/sglib-general">mailing list</A> hosted on the sourceforge.
+
+<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>
+
+</tr>
+</table>
+<br>
+<br>
+</center>
+ 
