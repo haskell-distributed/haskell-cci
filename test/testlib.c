@@ -22,6 +22,8 @@
 
 #include "testlib.h"
 
+#define MIN(x,y) ((x)<(y)?(x):(y))
+
 typedef struct _int_list {
     int v;
     struct _int_list* next;
@@ -104,12 +106,17 @@ struct Proc {
     int_lh_list_t* reservedLocalHandles;
     int_lh_list_t* availableHandles;
     int_rh_list_t* remoteHandles;
-    int_list_t* rmaWriteIds;
+    int_list_t* rmaWriteIds[100];
     int_list_t* rmaReadIds[100];
 };
 
 char* test_uri[100];
-typedef enum { MSG_RMA_HANDLE, MSG_RMA_READ, MSG_OTHER } MessageType;
+typedef enum 
+    { MSG_RMA_HANDLE
+    , MSG_RMA_READ
+    , MSG_RMA_WRITE
+    , MSG_OTHER 
+    } MessageType;
 
 
 void check_return(char *func, cci_endpoint_t* ep, int ret, int need_exit) {
@@ -149,22 +156,35 @@ void check_msg(const char* ptr,uint32_t len) {
 
     return;
 
+    char* sbuf;
   failed:
 
+    sbuf = (char*)malloc(len+1);
+    memcpy(sbuf,ptr,len);
+    sbuf[len]='\0';
 	fprintf(stderr, "check_msg() failed ");
     if (ret==1)
-	    fprintf(stderr, "when reading identifier (pos: %d, len: %d).\n",pos,len);
+	    fprintf(stderr, "when reading identifier (pos: %d, len: %d) \"%s\".\n",pos,len,sbuf);
     else
-	    fprintf(stderr, "when reading message body (pos: %d, ptr[pos]: %d, %c).\n",i,ptr[i],ptr[i]);
+	    fprintf(stderr, "when reading message body (pos: %d, ptr[pos]: %d, %c) \"%s\".\n",i,ptr[i],ptr[i],sbuf);
+    free(sbuf);
 	exit(EXIT_FAILURE);
 }
 
 void get_msg_id(const char* ptr,uint32_t len,char* res) {
-    // Read a numeric identifier
-    int pos = 0;
-    while (pos<len && '0'<=ptr[pos] && ptr[pos]<='9') {
-        res[pos]=ptr[pos];
+    // Determine start of identifier
+    int pos=0;
+    if (ptr[0]<'0' || '9'<ptr[0]) {
+        while(ptr[pos]!=' ')
+            pos+=1;
         pos+=1;
+    }
+    // Read a numeric identifier
+    int i=0;
+    while (pos<len && '0'<=ptr[pos] && ptr[pos]<='9') {
+        res[i]=ptr[pos];
+        pos+=1;
+        i+=1;
     }
     res[pos]='\0';
 }
@@ -173,7 +193,7 @@ uint64_t get_msg_remote_handle(const char* ptr) {
     uint64_t rh = 0;
     int i;
     for(i=0;i<8;i+=1)
-        rh = (rh<<8) + (uint64_t)ptr[5+i];
+        rh = (rh<<8) + (uint64_t)(unsigned char)ptr[5+i];
     return rh;
 }
 
@@ -185,10 +205,11 @@ MessageType get_message_type(const char* ptr,uint32_t len) {
         } else
             return MSG_RMA_HANDLE;
     } else if (len>=8 && strncmp(ptr,"rmaRead ",8)==0) {
+        // Check that only digits follow.
         int i=8;
         while(i<len && '0'<=ptr[i] && ptr[i]<='9')
             i+=1;
-        if (i<len) {
+        if (i<len || len>13 || len<9) {
             char* buf = (char*)malloc(len+1);
             memcpy(buf,ptr,len);
             buf[len]='\0';
@@ -197,10 +218,41 @@ MessageType get_message_type(const char* ptr,uint32_t len) {
             exit(EXIT_FAILURE);
         } else
             return MSG_RMA_READ;
+     } else if (len>=9 && strncmp(ptr,"rmaWrite ",9)==0) {
+        // Check that only digits follow.
+        int i=8;
+        while(i<len && '0'<=ptr[i] && ptr[i]<='9')
+            i+=1;
+        if (i<len || len>14 || len<10) {
+            char* buf = (char*)malloc(len+1);
+            memcpy(buf,ptr,len);
+            buf[len]='\0';
+	        fprintf(stderr, "get_message_type() failed: rmaWrite message is malformed: \"%s\"\n",buf);
+            free(buf);
+            exit(EXIT_FAILURE);
+        } else
+            return MSG_RMA_WRITE;
     } else {
         check_msg(ptr, len);
         return MSG_OTHER;
     }
+}
+
+void check_rma_buf(char* buf,int len,int sid) {
+    char sids[100];
+    int slen = sprintf(sids,"%d",sid);
+    int i=0;
+    while(i<len && strncmp(buf+i,sids,MIN(slen,len-i))==0)
+        i+=slen;
+    if (i<len) {
+        char* sbuf = (char*)malloc(len+1);
+        memcpy(sbuf,buf,len);
+        sbuf[len]='\0';
+	    fprintf(stderr, "check_rma_buf() failed: the buffer does not match the expected id: %d len: %d \"%s\"\n",sid,len,sbuf);
+        free(sbuf);
+        exit(EXIT_FAILURE);
+    }
+
 }
 
 void handle_event(proc_t* p,cci_event_t* event) {
@@ -224,9 +276,31 @@ void handle_event(proc_t* p,cci_event_t* event) {
        case CCI_EVENT_RECV:
            switch(get_message_type((const char*)event->recv.ptr,event->recv.len)) {
             case MSG_RMA_HANDLE:
+                fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_handle=%ld)\n"
+                       ,pid,event->recv.connection->context
+                       ,get_msg_remote_handle((const char*)event->recv.ptr));
                 sglib_int_rh_list_t_add(&p->remoteHandles,
                     mk_int_rh_list_t_node((int64_t)event->recv.connection->context
                         ,get_msg_remote_handle((const char*)event->recv.ptr)));
+                break;
+            case MSG_RMA_WRITE: {
+                int cid = (int64_t)event->recv.connection->context;
+                get_msg_id((const char*)event->recv.ptr,event->recv.len,msg_id);
+                fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_id=%s)\n",
+                        pid,cid,msg_id);
+                int sid=atoi(msg_id);
+                int_lh_list_t k = {cid, 0, NULL, 0, NULL};
+                int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
+                check_rma_buf(lh->buf,lh->len,sid);
+                sglib_int_list_t_add(&p->rmaWriteIds[cid],mk_int_list_t_node(sid));
+                }
+                break;
+            case MSG_RMA_READ:
+                get_msg_id((const char*)event->recv.ptr,event->recv.len,msg_id);
+                fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_id=%s)\n",
+                        pid,event->recv.connection->context,msg_id);
+                sglib_int_list_t_add(&p->recvs[(int64_t)event->recv.connection->context],
+                                     mk_int_list_t_node(atoi(msg_id)));
                 break;
             case MSG_OTHER:
                 get_msg_id((const char*)event->recv.ptr,event->recv.len,msg_id);
@@ -237,11 +311,19 @@ void handle_event(proc_t* p,cci_event_t* event) {
                 break;
            }
            break;
-       case CCI_EVENT_SEND:
-           fprintf(stderr,"process %d: CCI_EVENT_SEND (conn=%d,msg_id=%d,status=%s)\n"
-                         ,pid,event->send.connection->context,(int64_t)event->send.context
-                         ,cci_strerror(p->endpoint,event->send.status));
-           sglib_int_list_t_add(&p->sends[(int64_t)event->send.connection->context],mk_int_list_t_node((int64_t)event->send.context));
+       case CCI_EVENT_SEND: {
+               int sid = (int64_t)event->send.context;
+               int cid = (int64_t)event->send.connection->context;
+               fprintf(stderr,"process %d: CCI_EVENT_SEND (conn=%d,msg_id=%d,status=%s)\n"
+                         ,pid,cid,sid,cci_strerror(p->endpoint,event->send.status));
+               sglib_int_list_t_add(&p->sends[cid],mk_int_list_t_node(sid));
+           
+               int_lh_list_t k = {cid, 0, NULL, 0, NULL};
+               int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
+               int_list_t kr = {sid, NULL};
+               if (sglib_int_list_t_find_member(p->rmaReadIds[cid],&kr))
+                   check_rma_buf(lh->buf,lh->len,sid);
+           }
            break;
        default:
            fprintf(stderr,"process %d: aborting with received event: %d\n",pid,event->type);
@@ -250,11 +332,36 @@ void handle_event(proc_t* p,cci_event_t* event) {
     }
 }
 
-void rma_reuse(proc_t* p,int cid) {
+void rma_reuse(proc_t* p,int cid) 
+{
+    char buf[100];
+    read_msg(p,buf);
+
     sglib_int_list_t_add(&p->reuse,mk_int_list_t_node(cid));
+
+    write_msg(p,"");
 }
 
-void rma_handle_exchange(proc_t* p,int cid) {
+void rma_free_handle(proc_t* p,int cid) 
+{
+    char buf[100];
+    read_msg(p,buf);
+
+    int_lh_list_t lh = { cid, 0, NULL, 0, NULL };
+    int_lh_list_t* d;
+    if (sglib_int_lh_list_t_delete_if_member(&p->reservedLocalHandles,&lh,&d)) {
+        free(d->buf);
+        free(d);
+    }
+
+    write_msg(p,"");
+}
+
+void rma_handle_exchange(proc_t* p,int cid) 
+{
+    char buf[100];
+    read_msg(p,buf);
+
     // Create a local handle
     uint64_t h;
     int ret;
@@ -274,7 +381,8 @@ void rma_handle_exchange(proc_t* p,int cid) {
     } else { // if we must create a new handle
         void* rma_buf;
         int len = 4096;
-        posix_memalign(rma_buf,4096,len);
+        posix_memalign(&rma_buf,4096,len);
+        memset(rma_buf,'0',len);
         ret=cci_rma_register(p->endpoint,rma_buf,len,CCI_FLAG_READ | CCI_FLAG_WRITE,&h);
 	    check_return("cci_rma_register", p->endpoint, ret, 1);
 
@@ -284,7 +392,6 @@ void rma_handle_exchange(proc_t* p,int cid) {
 
     // Send the handle
     const int buf_len=13;
-    char buf[buf_len];
     strcpy(buf,"rmaH ");
     int i;
     for(i=0;i<8;i+=1)
@@ -296,10 +403,14 @@ void rma_handle_exchange(proc_t* p,int cid) {
     write_msg(p,"");
 }
 
-void wait_rma_exchange(proc_t* p,int cid) {
+void rma_wait_exchange(proc_t* p,int cid)
+{
+    char buf[100];
+    read_msg(p,buf);
     cci_event_t *event;
+
     int_rh_list_t e = { cid, 0, NULL };
-    while(!sglib_int_rh_list_t_is_member(p->remoteHandles,&e)) {
+    while(!sglib_int_rh_list_t_find_member(p->remoteHandles,&e)) {
 	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
 		}
 		handle_event(p,event);
@@ -309,23 +420,32 @@ void wait_rma_exchange(proc_t* p,int cid) {
     write_msg(p,"");
 }
 
-void prepare_rma_read(proc_t* p,int cid,int sid) {
+void prepare_rma_buffer(char* buf,int len,int sid) {
     char sids[100];
     int sidlen = sprintf(sids,"%d",sid);
+    int i=0;
+    while(i<len) {
+        strncpy(buf+i,sids,len-i);
+        i+=sidlen;
+    }
+}
 
+void rma_prepare_read(proc_t* p,int cid,int sid) 
+{
+    char buf[100];
+    read_msg(p,buf);
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
     int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
 
-    int i=0;
-    while(i<lh->len) {
-        strncpy(lh->buf+i,sids,lh->len-i);
-        i+=sidlen;
-    }
+    prepare_rma_buffer(lh->buf,lh->len,sid);
 
     write_msg(p,"");
 }
 
-void rma_read(proc_t* p,int cid,int sid) {
+void rma_read(proc_t* p,int cid,int sid) 
+{
+    char buf[100];
+    read_msg(p,buf);
     
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
     int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
@@ -335,9 +455,75 @@ void rma_read(proc_t* p,int cid,int sid) {
 
     sglib_int_list_t_add(&p->rmaReadIds[cid],mk_int_list_t_node(sid));
 
-    char buf[100];
     int len = sprintf(buf,"rmaRead %d",sid);
-    cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_READ);
+    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_READ);
+    check_return("cci_rma",p->endpoint,ret,1);
+
+    write_msg(p,"");
+}
+
+void rma_wait_read(proc_t* p,int cid,int sid)
+{
+    cci_event_t *event;
+    int pid = p->cci_pid;
+    char buf[100];
+    read_msg(p,buf);
+    int_list_t e = { sid, NULL };
+    int_list_t* d0, *d1;
+
+    sglib_int_list_t_delete_if_member(&p->recvs[cid],&e,&d0);
+    sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d1);
+	while(!d0 && !d1) {
+	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+		}
+		handle_event(p,event);
+		cci_return_event(event);
+        sglib_int_list_t_delete_if_member(&p->recvs[cid],&e,&d0);
+        sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d1);
+    }
+    free_int_list_t_node(d0);
+    free_int_list_t_node(d1);
+
+    write_msg(p,"");
+}
+
+void rma_write(proc_t* p,int cid,int sid) 
+{    
+    char buf[100];
+    read_msg(p,buf);
+    int_lh_list_t k = {cid, 0, NULL, 0, NULL};
+    int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
+
+    int_rh_list_t kr = {cid, 0, NULL};
+    int_rh_list_t* rh = sglib_int_rh_list_t_find_member(p->remoteHandles,&kr);
+
+    prepare_rma_buffer(lh->buf,lh->len,sid);
+
+    int len = sprintf(buf,"rmaWrite %d",sid);
+    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_WRITE);
+    check_return("cci_rma",p->endpoint,ret,1);
+
+    write_msg(p,"");
+}
+
+void rma_wait_write(proc_t* p,int cid,int sid)
+{
+    cci_event_t *event;
+    int pid = p->cci_pid;
+    char buf[100];
+    read_msg(p,buf);
+    int_list_t e = { sid, NULL };
+    int_list_t* d1;
+
+    sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d1);
+	while(!sglib_int_list_t_find_member(p->rmaWriteIds[cid],&e) && !d1) {
+	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
+		}
+		handle_event(p,event);
+		cci_return_event(event);
+        sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d1);
+    }
+    free_int_list_t_node(d1);
 
     write_msg(p,"");
 }
@@ -419,7 +605,6 @@ cci_connection_t*  wait_connection(proc_t* p,int cid)
 		cci_return_event(event);
     }
 	conn = p->conns[cid];
-	p->conns[cid] = NULL;
 
     write_msg(p,"");
     return conn;
@@ -469,6 +654,13 @@ void disconnect(proc_t* p,cci_connection_t* c) {
     read_msg(p,buf);
 
     cci_disconnect(c);
+    int i;
+    for(i=0;i<100;i+=1) {
+        if (p->conns[i]==c) {
+        	p->conns[i] = NULL;
+            break;
+        }
+    }
 
     write_msg(p,"");
 }
@@ -530,7 +722,8 @@ int spawn(proc_t** p,int cci_pid) {
     (*p)->availableHandles = NULL;
     (*p)->reservedLocalHandles = NULL;
     (*p)->remoteHandles = NULL;
-    (*p)->rmaWriteIds = NULL;
+	memset((*p)->rmaWriteIds,0,100*sizeof(int_list_t*));
+	memset((*p)->rmaReadIds,0,100*sizeof(int_list_t*));
 
     if (pipe(fdi)) {
         perror("Error creating pipe");

@@ -18,7 +18,7 @@ import Network.CCI    ( Status(..) )
 import System.Console.CmdArgs
 
 main :: IO ()
-main = props
+main =  writeFile "rmatest2.c" (generateCTest test2) -- singleTest -- props
 
 props :: IO ()
 props = do
@@ -111,7 +111,7 @@ matchSendRecvs ((i,ss):cms) rs = match' ss (rs!!i) && matchSendRecvs cms rs
 
 
 singleTest :: IO ()
-singleTest = runCommands test3 >>= print
+singleTest = runCommands test2 >>= print
 
 
 test :: [ProcCommand]
@@ -131,13 +131,13 @@ test2 = [([0],Accept 1)
   ,([0],RMAPrepareRead 1 5)
   ,([1],RMARead 1 5)
   ,([1,0],RMAWaitRead 1 5)
-  ,([0],RMAPrepareRead 1 6)
-  ,([1],RMARead 1 6)
-  ,([1,0],RMAWaitRead 1 6)
-  ,([1],RMAWrite 1 7)
-  ,([1,0],RMAWaitWrite 1 7)
-  ,([1],RMAWrite 1 8)
-  ,([1,0],RMAWaitWrite 1 8)
+--  ,([0],RMAPrepareRead 1 6)
+--  ,([1],RMARead 1 6)
+--  ,([1,0],RMAWaitRead 1 6)
+--  ,([1],RMAWrite 1 7)
+--  ,([1,0],RMAWaitWrite 1 7)
+--  ,([1],RMAWrite 1 8)
+--  ,([1,0],RMAWaitWrite 1 8)
   ,([1],RMAFreeHandles 1)
   ,([0],RMAFreeHandles 1)
   ,([1],Disconnect 1)

@@ -167,6 +167,15 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
     cciStatement (WaitSendCompletion cid sid) = text "" $$ text ("wait_send(p,"++show cid++","++show sid++");")
     cciStatement (WaitRecv cid rid) = text "" $$ text ("wait_recv(p,"++show cid++","++show rid++");")
     cciStatement (Accept _) = empty
+    cciStatement (RMAReuseRMAHandle cid) = text "" $$ text ("rma_reuse(p,"++show cid++");")
+    cciStatement (RMAHandleExchange cid) = text "" $$ text ("rma_handle_exchange(p,"++show cid++");")
+    cciStatement (RMAFreeHandles cid) = text "" $$ text ("rma_free_handle(p,"++show cid++");")
+    cciStatement (RMAWaitExchange cid) = text "" $$ text ("rma_wait_exchange(p,"++show cid++");")
+    cciStatement (RMAPrepareRead cid sid) = text "" $$ text ("rma_prepare_read(p,"++show cid++","++show sid++");")
+    cciStatement (RMARead cid sid) = text "" $$ text ("rma_read(p,"++show cid++","++show sid++");")
+    cciStatement (RMAWaitRead cid sid) = text "" $$ text ("rma_wait_read(p,"++show cid++","++show sid++");")
+    cciStatement (RMAWrite cid sid) = text "" $$ text ("rma_write(p,"++show cid++","++show sid++");")
+    cciStatement (RMAWaitWrite cid sid) = text "" $$ text ("rma_wait_write(p,"++show cid++","++show sid++");")
     cciStatement cmd = text "" $$ text ("unknown command: " ++ show cmd ++";")
 
     msgLen (Msg _ l) = l
