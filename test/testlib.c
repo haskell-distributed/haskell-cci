@@ -128,7 +128,7 @@ void check_return(char *func, cci_endpoint_t* ep, int ret, int need_exit) {
 	return;
 }
 
-void check_msg(const char* ptr,uint32_t len) {
+void check_msg(int pid,int cid,const char* ptr,uint32_t len) {
     // Read a numeric identifier
     int pos = 0;
     while (pos<len && '0'<=ptr[pos] && ptr[pos]<='9')
@@ -162,11 +162,10 @@ void check_msg(const char* ptr,uint32_t len) {
     sbuf = (char*)malloc(len+1);
     memcpy(sbuf,ptr,len);
     sbuf[len]='\0';
-	fprintf(stderr, "check_msg() failed ");
     if (ret==1)
-	    fprintf(stderr, "when reading identifier (pos: %d, len: %d) \"%s\".\n",pos,len,sbuf);
+	fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): check_msg() failed when reading identifier (pos: %d, len: %d) \"%s\"\n",pid,cid,pos,len,sbuf);
     else
-	    fprintf(stderr, "when reading message body (pos: %d, ptr[pos]: %d, %c) \"%s\".\n",i,ptr[i],ptr[i],sbuf);
+	    fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): when reading message body (pos: %d, ptr[pos]: %d, %c) \"%s\"\n",pid,cid,i,ptr[i],ptr[i],sbuf);
     free(sbuf);
 	exit(EXIT_FAILURE);
 }
@@ -186,7 +185,7 @@ void get_msg_id(const char* ptr,uint32_t len,char* res) {
         pos+=1;
         i+=1;
     }
-    res[pos]='\0';
+    res[i]='\0';
 }
 
 uint64_t get_msg_remote_handle(const char* ptr) {
@@ -197,10 +196,10 @@ uint64_t get_msg_remote_handle(const char* ptr) {
     return rh;
 }
 
-MessageType get_message_type(const char* ptr,uint32_t len) {
+MessageType get_message_type(int pid,int cid,const char* ptr,uint32_t len) {
     if (len>=5 && strncmp(ptr,"rmaH ",5)==0) {
         if (len!=13) {
-	        fprintf(stderr, "get_message_type() failed: rmaH message has not length 13: %d\n",len);
+	        fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): get_message_type() failed: rmaH message has not length 13: %d\n",pid,cid,len);
             exit(EXIT_FAILURE);
         } else
             return MSG_RMA_HANDLE;
@@ -213,27 +212,27 @@ MessageType get_message_type(const char* ptr,uint32_t len) {
             char* buf = (char*)malloc(len+1);
             memcpy(buf,ptr,len);
             buf[len]='\0';
-	        fprintf(stderr, "get_message_type() failed: rmaRead message is malformed: \"%s\"\n",buf);
+	        fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): get_message_type() failed: rmaRead message is malformed: \"%s\"\n",pid,cid,buf);
             free(buf);
             exit(EXIT_FAILURE);
         } else
             return MSG_RMA_READ;
      } else if (len>=9 && strncmp(ptr,"rmaWrite ",9)==0) {
         // Check that only digits follow.
-        int i=8;
+        int i=9;
         while(i<len && '0'<=ptr[i] && ptr[i]<='9')
             i+=1;
         if (i<len || len>14 || len<10) {
             char* buf = (char*)malloc(len+1);
             memcpy(buf,ptr,len);
             buf[len]='\0';
-	        fprintf(stderr, "get_message_type() failed: rmaWrite message is malformed: \"%s\"\n",buf);
+	        fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): get_message_type() failed: rmaWrite message is malformed: \"%s\"\n",pid,cid,buf);
             free(buf);
             exit(EXIT_FAILURE);
         } else
             return MSG_RMA_WRITE;
     } else {
-        check_msg(ptr, len);
+        check_msg(pid,cid,ptr,len);
         return MSG_OTHER;
     }
 }
@@ -274,7 +273,8 @@ void handle_event(proc_t* p,cci_event_t* event) {
            p->conns[(int64_t)event->accept.context] = event->accept.connection;
            break;
        case CCI_EVENT_RECV:
-           switch(get_message_type((const char*)event->recv.ptr,event->recv.len)) {
+           switch(get_message_type(pid,(intptr_t)event->recv.connection->context
+                                  ,(const char*)event->recv.ptr,event->recv.len)) {
             case MSG_RMA_HANDLE:
                 fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_handle=%ld)\n"
                        ,pid,event->recv.connection->context
@@ -444,7 +444,7 @@ void rma_prepare_read(proc_t* p,int cid,int sid)
 
 void rma_read(proc_t* p,int cid,int sid) 
 {
-    char buf[100];
+    char* buf = (char*)malloc(100);
     read_msg(p,buf);
     
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
@@ -458,6 +458,7 @@ void rma_read(proc_t* p,int cid,int sid)
     int len = sprintf(buf,"rmaRead %d",sid);
     int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_READ);
     check_return("cci_rma",p->endpoint,ret,1);
+    free(buf);
 
     write_msg(p,"");
 }
@@ -489,7 +490,7 @@ void rma_wait_read(proc_t* p,int cid,int sid)
 
 void rma_write(proc_t* p,int cid,int sid) 
 {    
-    char buf[100];
+    char* buf = (char*)malloc(100);
     read_msg(p,buf);
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
     int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
@@ -502,6 +503,7 @@ void rma_write(proc_t* p,int cid,int sid)
     int len = sprintf(buf,"rmaWrite %d",sid);
     int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_WRITE);
     check_return("cci_rma",p->endpoint,ret,1);
+    free(buf);
 
     write_msg(p,"");
 }
