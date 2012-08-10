@@ -43,7 +43,6 @@ Library
   ghc-options:      -O -Wall
 
   include-dirs:   cci/include, cci/src, cci/src/api
-  extra-libraries:  ltdl, rdmacm
   if flag(static-verbs) || flag (static-sock)
     c-sources:
                     cci/src/plugins/base/init.c
