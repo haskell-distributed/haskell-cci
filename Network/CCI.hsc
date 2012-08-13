@@ -28,9 +28,11 @@ module Network.CCI
   , getDevices
   -- * Endpoints
   , Endpoint
-  , createEndpoint
+  , createBlockingEndpoint
+  , createPollingEndpoint
   , destroyEndpoint
-  , withEndpoint
+  , withBlockingEndpoint
+  , withPollingEndpoint
   , endpointURI
   -- * Connections
   , Connection
@@ -297,10 +299,10 @@ data EndpointV
 --
 -- If it is desirable to bind the CCI endpoint to a specific set of
 -- resources (e.g., a NUMA node), you should bind the calling thread
--- before calling 'createEndpoint'. This is probably done by starting
+-- before calling 'createBlockingEndpoint'. This is probably done by starting
 -- the thread with 'Control.Concurrent.forkOn'.
 --
--- The OS handle returned by createEndpoint can be manipulated with
+-- The OS handle returned by 'createBlockingEndpoint' can be manipulated with
 -- 'Control.Concurrent.threadWaitRead' and 'Control.Concurrent.threadWaitWrite'.
 --
 -- The garbage collector will release resources associated with the handle
@@ -316,13 +318,23 @@ data EndpointV
 --
 --  * driver-specific errors
 --
-createEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device.
+createBlockingEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device.
                -> IO (Endpoint,Fd) -- ^ The endpoint and an operating system handle that can be used
                                    -- to block for progress on this endpoint.
-createEndpoint mdev = alloca$ \ppend ->
+createBlockingEndpoint mdev = alloca$ \ppend ->
     alloca$ \pfd -> do
       cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend pfd >>= cci_check_exception
       liftM2 ((,)) (peek ppend) (fmap Fd$ peek pfd)
+
+
+-- | Like 'createBlockingEndpoint' but avoids creation of an OS handle. Use this function
+-- only if you intend to poll for events without blocking.
+createPollingEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device
+               -> IO Endpoint -- ^ The endpoint
+createPollingEndpoint mdev = alloca$ \ppend -> do
+      cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend nullPtr >>= cci_check_exception
+      peek ppend
+
 
 foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr Endpoint -> Ptr CInt -> IO CInt
 
@@ -338,12 +350,19 @@ destroyEndpoint (Endpoint pend) = cci_destroy_endpoint pend >>= cci_check_except
 foreign import ccall unsafe cci_destroy_endpoint :: Ptr EndpointV -> IO CInt
 
 
--- | Wraps an IO action with calls to 'createEndpoint' and 'destroyEndpoint'.
+-- | Wraps an IO action with calls to 'createBlockingEndpoint' and 'destroyEndpoint'.
 --
 -- Makes sure that 'destroyEndpoint' is called in the presence of errors.
 --
-withEndpoint :: Maybe Device -> ((Endpoint,Fd) -> IO a) -> IO a
-withEndpoint mdev = bracket (createEndpoint mdev) (destroyEndpoint . fst)
+withBlockingEndpoint :: Maybe Device -> ((Endpoint,Fd) -> IO a) -> IO a
+withBlockingEndpoint mdev = bracket (createBlockingEndpoint mdev) (destroyEndpoint . fst)
+
+-- | Wraps an IO action with calls to 'createPollingEndpoint' and 'destroyEndpoint'.
+--
+-- Makes sure that 'destroyEndpoint' is called in the presence of errors.
+--
+withPollingEndpoint :: Maybe Device -> (Endpoint -> IO a) -> IO a
+withPollingEndpoint mdev = bracket (createPollingEndpoint mdev) destroyEndpoint
 
 
 -- | Driver created URI of the endpoint. May be passed to clients out-of-band

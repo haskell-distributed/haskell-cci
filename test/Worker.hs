@@ -46,7 +46,7 @@ import Foreign.Marshal.Alloc   ( alloca )
 import Foreign.Marshal.Array   ( pokeArray, peekArray )
 import System.IO               ( hPutStrLn, stderr )
 
-import Network.CCI             ( withCCI, withEndpoint, connect, ConnectionAttributes(..)
+import Network.CCI             ( withCCI, withPollingEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
                                , endpointURI, pollWithEventData, RMALocalHandle, RMARemoteHandle
@@ -74,7 +74,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
     rcm <- emptyConnMap
     rcrs <- emptyConnReq
     rmar <- emptyRMAState
-    withEndpoint Nothing$ \(ep,_fd) -> do
+    withPollingEndpoint Nothing$ \ep -> do
       endpointURI ep >>= putStrLn
       endpointURI ep >>= hPutStrLn stderr
       processCommands rcm rcrs rmar ep

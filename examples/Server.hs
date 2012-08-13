@@ -8,7 +8,7 @@ import Control.Exception     ( finally )
 import Control.Monad         ( forever, void )
 import qualified Data.ByteString as B  ( putStrLn )
 import Data.ByteString.Char8 ( pack )
-import Network.CCI           ( withCCI, withEndpoint, endpointURI, accept
+import Network.CCI           ( withCCI, withPollingEndpoint, endpointURI, accept
                              , pollWithEventData, EventData(..), disconnect, send
 							 , unsafePackEventBytes
                              )
@@ -17,7 +17,7 @@ import Network.CCI           ( withCCI, withEndpoint, endpointURI, accept
 main :: IO ()
 main =
   withCCI$
-    withEndpoint Nothing$ \(ep,_fd) -> do
+    withPollingEndpoint Nothing$ \ep -> do
       endpointURI ep >>= putStrLn
       _ <- forever$ pollWithEventData ep$ \evd ->
          case evd of
