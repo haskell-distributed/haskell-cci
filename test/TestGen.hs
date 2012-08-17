@@ -154,6 +154,8 @@ runCommands :: [ProcCommand] -> IO [[Response]]
 runCommands t = fmap snd$ runProcessM (defaultTestConfig { nProcesses = (1 + maximum (concatMap fst t)), withValgrind = False })$ runProcs t
 
 
+-- | Generates a C program reproducing a given sequence of commands.
+-- The generated program relies on definitions in testlib.h and testlib.c.
 generateCTest :: [ProcCommand] -> String
 generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
                                     $ sortBy (compare `on` fst)
@@ -433,8 +435,10 @@ genInteraction c p0 p1 = do
         return$ waits1 ++ prepareRead ++ ([p0],sendCmd cid (fromIntegral mid)) : rest
 
 
--- A monad for processes
-
+-- | A monad for processes. It carries along a state with the file handles
+-- used to comunicate with each process. It collects, in addition, the
+-- responses provided by such processes.
+--
 type ProcessM a = StateT ([Process],[[Response]]) IO a
 
 runProcessM :: TestConfig -> ProcessM a -> IO (a,[[Response]])
@@ -455,6 +459,18 @@ runProcessM c m = do
           s <- hGetContents h
           when ("==    at " `isInfixOf` s)$ ioError$ userError$ "valgrind found errors"
         )
+
+
+addResponse :: Response -> Int -> ProcessM ()
+addResponse resp n = modify (\(ps,rs) -> (ps,insertR n resp rs))
+  where
+    insertR 0 r (rs:rss) = (r:rs) : rss
+    insertR i r (rs:rss) = rs : insertR (i-1) r rss
+    insertR i _ []       = error$ "Process "++show i++" does not exist."
+
+
+getProc :: Int -> ProcessM Process
+getProc i = get >>= return . (!!i) . fst
 
 
 runProcs :: [ProcCommand] -> ProcessM ()
@@ -535,17 +551,6 @@ readResponse p i = do
         unless (r==Idle)$ addResponse r i
         return r
 
-
-addResponse :: Response -> Int -> ProcessM ()
-addResponse resp n = modify (\(ps,rs) -> (ps,insertR n resp rs))
-  where
-    insertR 0 r (rs:rss) = (r:rs) : rss
-    insertR i r (rs:rss) = rs : insertR (i-1) r rss
-    insertR i _ []       = error$ "Process "++show i++" does not exist."
-
-
-getProc :: Int -> ProcessM Process
-getProc i = get >>= return . (!!i) . fst
 
 -- | @loopWhileM p io@ performs @io@ repeteadly while its result satisfies @p@.
 -- Yields the first offending result.
