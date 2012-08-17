@@ -1,0 +1,172 @@
+These notes describe the design of the test generation software for the
+CCI API.
+
+Generated tests are intended to exercise CCI features as thoroughly as 
+possible. Because there is a big space of possible interactions between
+processes communicating through CCI, instead of writing a fixed set of
+tests, we generate randomly some programs producing interactions in this
+space.
+
+Sometimes the programs will fail to complete, and sometimes the output
+produced by them won't be the expected. In both situations the programs
+should be reported.
+
+We describe the interactions to test with a small language embedded in
+Haskell. This interactions are then executed with an interpreter which
+uses the CCI Haskell bindings. As we are interested in having the bugs 
+fixed soon when they are discovered, we provide means to translate our
+failing tests to C. We have created a thin layer over CCI in C, which
+mimics the primitives of our Haskell EDSL. Having a C program which 
+reproduces a bug, makes it easier to debug and saves CCI developers the
+need to be familiar with Haskell.
+
+At the top level we provide a function similar to the following:
+
+    testProp :: (TestError -> IO ()) -> 
+                ([ProcCommand] -> [[Response]] -> [(String,Bool)]) -> 
+                IO [TestError]
+
+The function @testProp f g@ generates many interactions and executes
+them. For each interaction that completes, it pass to function @g@ the
+description of the interaction (@[ProcCommand]@) and the output of each
+participating process (@[[Responses]]@). Function @g@ then yields a
+list of conditions (each being a name and a boolean) that either hold
+or not. For every interaction that doesn't complete or doesn't satisfy
+all conditions of @g@, the error reporting function @f@ is called.
+Finally, the list of all found errors is returned.
+
+    type TestError = (String,[ProcCommand],[[Response]])
+
+The test error carries a textual description of the error, an
+interaction and the output of it. In a fashion imitating QuickCheck,
+when a failing interaction is found, it is shrinked and it is the 
+shrinking result the one reported.
+
+
+== The interaction EDSL ==
+
+An interaction is a sequence of commands for various processes.
+
+    type ProcCommand = ([Int],Command)
+
+A process command holds the identifiers of the processes (@[Int]@) to
+which a command is directed. Instead of using a representation as
+@[ProcCommand]@ for interactions, we could have chosen 
+@[(Int,Command)]@ and have several commands in the latter for each
+command involving several processes in the former. This decision has an
+impact later when generating and interpreting interactions. The first
+representation turned out the most practical.
+
+Here's a listing of the possible commands:
+
+    data Command =
+        ConnectTo String Int WordPtr (Maybe Word64) -- ^ @ConnectTo uri process_id connection_id timeout@ process id is 
+                                                    -- only used on the test driver side
+      | Send WordPtr WordPtr Msg                    -- ^ @Send connection_id send_id msg@ message 
+      | Accept WordPtr                              -- ^ @Accept connection_id@
+      | Reject WordPtr                              -- ^ @Reject connection_id@
+      | Disconnect WordPtr                          -- ^ @Disconnect connection_id@
+      | WaitConnection WordPtr                      -- ^ Wait for a given connection to be established.
+      | WaitSendCompletion WordPtr WordPtr          -- ^ @WaitSendCompletion conn_id send_id@ Wait for a send completion to arrive.
+      | WaitRecv WordPtr WordPtr                    -- ^ @WaitRecv conn_id recv_id@ for a receive event to arrive.
+
+      | RMAReuseRMAHandle WordPtr                   -- ^ @RMAReuseRMAHandle conn_id@ marks the connection @conn_id@ to
+                                                  -- reuse a previous rma handle instead of creating a new one.
+      | RMAHandleExchange WordPtr                   -- ^ @RMAHandleExchange conn_id@ exchanges rma handles with the
+                                                  -- given process through the driver.
+      | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
+      | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
+      | RMAPrepareRead WordPtr WordPtr              -- ^ @RMAPrepareRead conn_id msg_id@ writes the rma buffer with predefined data for an rma operation.
+      | RMARead WordPtr WordPtr                     -- ^ @RMARead conn_id msg_id@ 
+	  | RMAWaitWrite WordPtr WordPtr                -- ^ @RMAWaitWrite conn_id msg_id@
+      | RMAWaitRead WordPtr WordPtr                 -- ^ @RMAWaitRead conn_id msg_id@
+      | RMAFreeHandles WordPtr                      -- ^ @RMAFreeHandles conn_id@ releases the handles of a connection.
+
+      | Quit
+
+
+* ConnectTo uri pid connection_id (Just timeout)
+
+This command instructs a process to issue a cci_connect call using the
+given uri and timeout, and binding the resulting connection with the 
+identifier connection_id. The process completes the command when the 
+cci_connect call returns. pid is the indentifier of the process
+listenning at the provided uri. The target process doesn't use it for 
+anything, but when generating the interaction description the pid is
+specified first and later the uri is filled in, which is obtained only
+after the interacting processes have been launched.
+
+* WaitConnection connection_id
+
+Instructs a process to poll repeteadly for events using cci_get_event
+until the connection bound to the identifier connection_id is 
+stablished. The process completes the operation when cci_get_event 
+yields a CCI_EVENT_CONNECT event for the connection.
+
+This operation requires the remote process to be continually polling for
+events. This is so because the CCI API uses cci_get_event both to
+process internal events and to yield events to the user. As of the date 
+of this writing the verbs driver of CCI does not use a progress thread.
+Therefore, this command requires cooperation of the remote process to 
+complete.
+
+* Send connection_id msg_id msg
+
+Instructs a process to issue a cci_send call using the given connection
+and message msg, and binding the message to the identifier msg_id. The
+process completes the command when the cci_send call returns.
+
+* WaitSendCompletion connection_id msg_id
+
+Instructs a process to poll repeteadly for events using cci_get_event
+until the message bound to the identifier msg_id is sent. The process
+completes the operation when cci_get_event yields a CCI_EVENT_SEND event
+for the connection bound to identifier connection_id and the message
+bound to msg_id.
+
+
+== Interpreting commands == 
+
+We have implemented a program called Worker which interprets 
+interaction commands. An interaction is started by launching as many
+processes as the interaction requires, each process running a copy of
+the Worker program. Then commands are fed one by one to each process.
+We call the driver process to the process which send commands, thus
+orchestrating the interaction.
+
+We want the execution to be as deterministic as possible, so an error
+can be easily reproduced. Because of this, we request each process to 
+indicate completion of a given command before sending the next command
+to its respective process. 
+
+Since there are some commands which are not possible to complete
+without cooperation from the other processes (like @WaitConnection@),
+waiting for a command to complete before delivering other commands 
+could cause a deadlock. Because of this, commands which require
+cooperation are send simultaneously to their respective processes
+instead of seding them one by one. When all processes have confirmed
+completion, execution proceeds to the next bunch of commands. 
+
+So far the above has been simpler to achieve when representing 
+interactions as @[ProcCommand]@. When different actions are required
+from different processes simultaneously, a single command is targeted
+to multiple processes @([p0...pn],command)@ and the worker is 
+instructed to wait for any of the actions that a process would be 
+expected to do during the cooperation. A more direct approach would be
+to use @[[(Int,Command)]]@ as representation for interactions, where
+each bunch of commands is explicitly stated.
+
+When a command needs coperation some determinism in the execution is 
+lost when delivering the command simultaneously to different processes.
+We could change the Worker so it permanently polls for events. Since 
+then we doesn't need a command to poll, all the Wait-like commands could
+not possibly block, therefore interpreting commands would be simpler.
+We would lose some of the determinism we strive to achieve. If all
+commands required cooperation, then this choice would make sense. But to
+date some commands are independent and for these having more
+determinism during execution seems preferable.
+
+
+== Generation and shrinking ==
+
+

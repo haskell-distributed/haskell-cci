@@ -1,4 +1,8 @@
 Files in this folder implement test generation.
+This file describes how to use the test generator.
+For details on the design of test generation see design.txt.
+
+
 The test are run by issuing the following commands from the cci-haskell parent folder:
 
 cabal config -f tests
