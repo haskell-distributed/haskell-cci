@@ -25,6 +25,8 @@ module Network.CCI
   , withCCI
   -- * Devices
   , Device
+  , getDeviceInfo
+  , DeviceInfo(..)
   , getDevices
   -- * Endpoints
   , Endpoint
@@ -238,7 +240,34 @@ withCCI = bracket_ initCCI finalizeCCI
 -- (HCA) that connects the host and network. A device may provide multiple 
 -- endpoints (typically one per core).
 --
-newtype Device = Device (Ptr Device)
+data Device = Device 
+    { devPtr :: Ptr Device
+    , getDeviceInfo :: DeviceInfo -- ^ Device information 
+    }
+
+-- | Device information.
+data DeviceInfo = DeviceInfo
+    { devName :: String  -- ^ Name of the device from the config file, e.g. @"bob0"@
+
+    , devTransport :: String -- ^ Name of the device driver, e.g., @"sock"@ or @"verbs"@
+
+    , devUp :: Bool -- ^ Is this device actually up and running?
+
+    , devInfo :: String -- ^ Human readable description string (to include newlines); should
+	                    -- contain debugging info, probably the network address of the
+                        -- device at a bare minimum.
+
+    , devConfArgs :: [String] -- ^ @"key=value"@ strings from the config file for this device.
+
+    , devMaxSendSize :: Word32 -- ^ Maximum send size supported by the device
+    , devRate :: Word64 -- ^ Data rate per specification: data bits per second (not the
+                        -- signaling rate). @0@ if unknown.
+
+    , devPCI :: (Word32,Word32,Word32,Word32) -- ^ The PCI ID of this device as reported by the OS/hardware.  All
+	                                          -- values will be @0xFFFF@ for non-PCI devices (e.g. shared memory)
+		                                      -- (domain, bus, dev, func)
+    }
+  deriving Show
 
 
 -- | Returns a list of \"up\" devices.
@@ -251,13 +280,37 @@ getDevices :: IO [Device]
 getDevices = do
     pdev <- alloca$ \ppdev -> cci_get_devices ppdev >>= cci_check_exception >> peek ppdev
     devices <- peekNullTerminated pdev 0
-    return$ map Device devices
+    mapM mkDevice devices
   where
-    peekNullTerminated :: Ptr (Ptr Device) -> Int -> IO [Ptr Device]
+    peekNullTerminated :: Ptr (Ptr a) -> Int -> IO [Ptr a]
     peekNullTerminated p i = do
       d <- peekElemOff p i
       if d == nullPtr then return []
         else fmap (d:)$ peekNullTerminated p (i+1) 
+
+    mkDevice :: Ptr Device -> IO Device
+    mkDevice p = do
+        name <- (#{peek cci_device_t, name} p) >>= peekCString
+        transport <- #{peek cci_device_t, transport} p >>= peekCString
+        up <- #{peek cci_device_t, up} p
+        info <- #{peek cci_device_t, info} p >>= peekCString
+        conf_args <- (#{peek cci_device_t, conf_argv} p) >>= flip peekNullTerminated 0 >>= mapM peekCString
+        max_send_size <- #{peek cci_device_t, max_send_size} p
+        rate <- #{peek cci_device_t, rate} p
+        pci_domain <- #{peek cci_device_t, pci.domain} p
+        pci_bus <- #{peek cci_device_t, pci.bus} p
+        pci_dev <- #{peek cci_device_t, pci.dev} p
+        pci_func <- #{peek cci_device_t, pci.func} p
+        return$ Device p DeviceInfo 
+            { devName = name
+            , devTransport = transport
+            , devUp = up
+            , devInfo = info
+            , devConfArgs = conf_args
+            , devMaxSendSize = max_send_size
+            , devRate = rate
+            , devPCI = (pci_domain, pci_bus, pci_dev, pci_func)
+            }
 
 
 foreign import ccall unsafe cci_get_devices :: Ptr (Ptr (Ptr Device)) -> IO CInt
@@ -330,7 +383,7 @@ createBlockingEndpoint :: Maybe Device -- ^ The device to use or Nothing to use 
                                    -- to block for progress on this endpoint.
 createBlockingEndpoint mdev = alloca$ \ppend ->
     alloca$ \pfd -> do
-      cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend pfd >>= cci_check_exception
+      cci_create_endpoint (maybe nullPtr devPtr mdev) 0 ppend pfd >>= cci_check_exception
       liftM2 ((,)) (peek ppend) (fmap Fd$ peek pfd)
 
 
@@ -339,7 +392,7 @@ createBlockingEndpoint mdev = alloca$ \ppend ->
 createPollingEndpoint :: Maybe Device -- ^ The device to use or Nothing to use the system-default device
                -> IO Endpoint -- ^ The endpoint
 createPollingEndpoint mdev = alloca$ \ppend -> do
-      cci_create_endpoint (maybe nullPtr (\(Device pdev) -> pdev) mdev) 0 ppend nullPtr >>= cci_check_exception
+      cci_create_endpoint (maybe nullPtr devPtr mdev) 0 ppend nullPtr >>= cci_check_exception
       peek ppend
 
 
