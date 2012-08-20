@@ -49,7 +49,7 @@ import System.IO               ( hPutStrLn, stderr )
 import Network.CCI             ( withCCI, withPollingEndpoint, connect, ConnectionAttributes(..)
                                , EventData(..), disconnect, send, Connection
                                , accept, reject, Event, Status(..), unsafePackEventBytes
-                               , endpointURI, pollWithEventData, RMALocalHandle, RMARemoteHandle
+                               , getEndpt_URI, pollWithEventData, RMALocalHandle, RMARemoteHandle
                                , RMA_MODE(..), RMALocalHandle, RMARemoteHandle, rmaRegister
                                , rmaHandle2ByteString, createRMARemoteHandle, Endpoint, rmaWrite
                                , rmaRead, packEventBytes
@@ -75,8 +75,8 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
     rcrs <- emptyConnReq
     rmar <- emptyRMAState
     withPollingEndpoint Nothing$ \ep -> do
-      endpointURI ep >>= putStrLn
-      endpointURI ep >>= hPutStrLn stderr
+      getEndpt_URI ep >>= putStrLn
+      getEndpt_URI ep >>= hPutStrLn stderr
       processCommands rcm rcrs rmar ep
 
   where

@@ -5,8 +5,8 @@
 --
 
 import Control.Exception     ( finally )
-import Data.ByteString as B  ( putStrLn, empty )
-import Data.ByteString.Char8 ( pack )
+import Data.ByteString as B  ( empty )
+import Data.ByteString.Char8 as B ( pack, putStrLn )
 import System.Environment    ( getArgs )
 
 import Network.CCI           ( withCCI, withPollingEndpoint, connect, ConnectionAttributes(..)

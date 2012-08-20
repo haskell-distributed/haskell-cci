@@ -11,9 +11,6 @@
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ForeignFunctionInterface   #-}
 {-# LANGUAGE GADTs                      #-} 
-{-# LANGUAGE MultiParamTypeClasses      #-} 
-{-# LANGUAGE FunctionalDependencies     #-} 
-{-# LANGUAGE FlexibleInstances          #-} 
 
 -- | Haskell bindings for CCI. 
 --
@@ -36,7 +33,6 @@ module Network.CCI
   , destroyEndpoint
   , withBlockingEndpoint
   , withPollingEndpoint
-  , endpointURI
   -- * Connections
   , Connection
   , connectionMaxSendSize
@@ -79,20 +75,21 @@ module Network.CCI
   , packEventBytes
   , unsafePackEventBytes
   , EventData(..)
-  -- * Setting options
-  , setConnectionOpt
-  , setEndpointOpt
-  , getConnectionOpt
-  , getEndpointOpt
-  -- ** Endpoint options
-  , OPT_ENDPT_SEND_TIMEOUT(..)
-  , OPT_ENDPT_SEND_BUF_COUNT(..)
-  , OPT_ENDPT_RECV_BUF_COUNT(..)
-  , OPT_ENDPT_KEEPALIVE_TIMEOUT(..)
-  , OPT_ENDPT_RMA_ALIGN(..)
-  , OPT_ENDPT_URI(..)
-  -- ** Connection options
-  , OPT_CONN_SEND_TIMEOUT(..)
+  -- * Endpoint options
+  , getEndpt_SendTimeout
+  , setEndpt_SendTimeout
+  , getEndpt_SendBufCount
+  , setEndpt_SendBufCount
+  , getEndpt_RecvBufCount
+  , setEndpt_RecvBufCount
+  , getEndpt_KeepAliveTimeout
+  , setEndpt_KeepAliveTimeout
+  , getEndpt_RMAAlign
+  , setEndpt_RMAAlign
+  , getEndpt_URI
+  -- * Connection options
+  , getConn_SendTimeout
+  , setConn_SendTimeout
   -- * Error handling
   , strError 
   , CCIException(..)
@@ -373,12 +370,6 @@ withBlockingEndpoint mdev = bracket (createBlockingEndpoint mdev) (destroyEndpoi
 --
 withPollingEndpoint :: Maybe Device -> (Endpoint -> IO a) -> IO a
 withPollingEndpoint mdev = bracket (createPollingEndpoint mdev) destroyEndpoint
-
-
--- | Driver created URI of the endpoint. May be passed to clients out-of-band
--- to pass to 'connect'. The application should never need to parse this URI.
-endpointURI :: Endpoint -> IO String
-endpointURI e = getEndpointOpt e OPT_ENDPT_URI 
 
 
 ------------------------------------------
@@ -1188,89 +1179,6 @@ data EventData s =
 ------------------------------------------
 
 
--- | Sets a connection option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-setConnectionOpt :: WritableConnectionOption co b => Connection -> co -> b -> IO ()
-setConnectionOpt (Connection pconn) co v =
-    withValueCO co v$ \pv -> do
-      cci_set_opt (castPtr pconn) (fromIntegral$ fromEnumCO co) (castPtr pv)
-        >>= cci_check_exception
-
-foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
-
-
--- | Sets an endpoint option value
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-setEndpointOpt :: WritableEndpointOption eo b => Endpoint -> eo -> b -> IO ()
-setEndpointOpt (Endpoint pend) eo v =
-    withValueEO eo v$ \pv -> do
-      cci_set_opt (castPtr pend) (fromIntegral$ fromEnumEO eo) (castPtr pv)
-        >>= cci_check_exception
-
-
--- | Retrieves a connection option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
---
---  * driver-specific errors.
---
-getConnectionOpt :: ReadableConnectionOption co b => Connection -> co -> IO b
-getConnectionOpt (Connection pconn) co =
-    alloca$ \pv -> do
-      cci_get_opt (castPtr pconn) (fromIntegral$ fromEnumCO co) (castPtr pv)
-        >>= cci_check_exception
-      peek pv >>= coReadValue co
-
-foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr (Ptr ()) -> IO CInt
-
-
--- | Retrieves an endpoint option value.
---
--- May throw:
---
---  * 'ERR_NOT_IMPLEMENTED' Not supported by this driver.
--- 
---  * driver-specific errors.
---
-getEndpointOpt :: ReadableEndpointOption eo b => Endpoint -> eo -> IO b
-getEndpointOpt (Endpoint pend) eo =
-    alloca$ \pv -> do
-      cci_get_opt (castPtr pend) (fromIntegral$ fromEnumEO eo) (castPtr pv)
-        >>= cci_check_exception
-      peek pv >>= eoPeekValue eo
-
-
--------------------------
--- Endpoint options
--------------------------
-
-
--- | Default send timeout for all new connections.
-data OPT_ENDPT_SEND_TIMEOUT = OPT_ENDPT_SEND_TIMEOUT
-
--- | How many receiver buffers on the endpoint. It is the max
--- number of messages the CCI layer can receive without dropping.
-data OPT_ENDPT_RECV_BUF_COUNT = OPT_ENDPT_RECV_BUF_COUNT
-
--- | How many send buffers on the endpoint. It is the max number of
--- pending messages the CCI layer can buffer before failing or
--- blocking (depending on reliability mode).
-data OPT_ENDPT_SEND_BUF_COUNT = OPT_ENDPT_SEND_BUF_COUNT
-    
 -- | The \"keepalive\" timeout is to prevent a client from connecting
 -- to a server and then the client disappears without the server
 -- noticing. If the server never sends anything on the connection,
@@ -1294,13 +1202,40 @@ data OPT_ENDPT_SEND_BUF_COUNT = OPT_ENDPT_SEND_BUF_COUNT
 -- but the connection is *not* disconnected. Recovery decisions
 -- are up to the application; it may choose to 'disconnect' the
 -- connection, re-arm the keepalive timeout, etc.
-data OPT_ENDPT_KEEPALIVE_TIMEOUT = OPT_ENDPT_KEEPALIVE_TIMEOUT 
+getEndpt_KeepAliveTimeout :: Endpoint -> IO Word32
+getEndpt_KeepAliveTimeout = getEndpointOpt' #{const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT} peek
 
--- | Retrieve the endpoint's URI used for listening for connection
--- requests. The application should never need to parse this URI.
---
--- 'getEndpointOpt' only.
-data OPT_ENDPT_URI = OPT_ENDPT_URI
+-- | See 'getEndpt_KeepAliveTimeout'.
+setEndpt_KeepAliveTimeout :: Endpoint -> Word32 -> IO ()
+setEndpt_KeepAliveTimeout = setEndpointOpt' #{const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT} poke
+
+
+-- | Default send timeout for all new connections.
+getEndpt_SendTimeout :: Endpoint -> IO Word32
+getEndpt_SendTimeout = getEndpointOpt' #{const CCI_OPT_ENDPT_SEND_TIMEOUT} peek
+
+-- | See 'getEndpt_SendTimeout'.
+setEndpt_SendTimeout :: Endpoint -> Word32 -> IO ()
+setEndpt_SendTimeout = setEndpointOpt' #{const CCI_OPT_ENDPT_SEND_TIMEOUT} poke
+
+-- | How many send buffers on the endpoint. It is the max number of
+-- pending messages the CCI layer can buffer before failing or
+-- blocking (depending on reliability mode).
+getEndpt_SendBufCount :: Endpoint -> IO Word32
+getEndpt_SendBufCount = getEndpointOpt' #{const CCI_OPT_ENDPT_SEND_BUF_COUNT} peek
+
+-- | See 'getEndpt_SendBufCount'.
+setEndpt_SendBufCount :: Endpoint -> Word32 -> IO ()
+setEndpt_SendBufCount = setEndpointOpt' #{const CCI_OPT_ENDPT_SEND_BUF_COUNT} poke
+
+-- | How many receiver buffers on the endpoint. It is the max
+-- number of messages the CCI layer can receive without dropping.
+getEndpt_RecvBufCount :: Endpoint -> IO Word32
+getEndpt_RecvBufCount = getEndpointOpt' #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} peek
+
+-- | See 'getEndpt_RecvBufCount'.
+setEndpt_RecvBufCount :: Endpoint -> Word32 -> IO ()
+setEndpt_RecvBufCount = setEndpointOpt' #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} poke
 
 -- | RMA registration alignment requirements can be retrieved for an endpoint.
 --
@@ -1315,7 +1250,49 @@ data OPT_ENDPT_URI = OPT_ENDPT_URI
 -- copy of the data to the correct location. This will decrease
 -- performance for these cases.
 --
-data OPT_ENDPT_RMA_ALIGN = OPT_ENDPT_RMA_ALIGN
+getEndpt_RMAAlign :: Endpoint -> IO RMAAlignments
+getEndpt_RMAAlign = getEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} peekRMAAlignments
+  where
+    peekRMAAlignments p = do
+      rwla <- #{peek cci_alignment_t, rma_write_local_addr} p
+      rwra <- #{peek cci_alignment_t, rma_write_remote_addr} p
+      rwl  <- #{peek cci_alignment_t, rma_write_length} p
+      rrla <- #{peek cci_alignment_t, rma_read_local_addr} p
+      rrra <- #{peek cci_alignment_t, rma_read_remote_addr} p
+      rrl  <- #{peek cci_alignment_t, rma_read_length} p
+      return RMAAlignments
+        { rmaWriteLocalAddr  = rwla
+        , rmaWriteRemoteAddr = rwra
+        , rmaWriteLength     = rwl
+        , rmaReadLocalAddr   = rrla
+        , rmaReadRemoteAddr  = rrra
+        , rmaReadLength      = rrl
+        }
+
+-- | See 'setEndpt_RMAAlign'.
+setEndpt_RMAAlign :: Endpoint -> Word32 -> IO ()
+setEndpt_RMAAlign = setEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} poke
+
+
+-- | Retrieve the endpoint's URI used for listening for connection
+-- requests. The application should never need to parse this URI.
+getEndpt_URI :: Endpoint -> IO String
+getEndpt_URI = getEndpointOpt' #{const CCI_OPT_ENDPT_URI} (peekCString . castPtr)
+
+
+setEndpointOpt' :: Storable a => CInt -> (Ptr a -> a -> IO ()) -> Endpoint ->  a -> IO ()
+setEndpointOpt' opt pk (Endpoint pend) v = withValueO pk v$ \pv ->
+      cci_set_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
+
+getEndpointOpt' :: CInt -> (Ptr a -> IO a) -> Endpoint -> IO a
+getEndpointOpt' opt pk (Endpoint pend) =
+    alloca$ \pv -> do
+      cci_get_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
+      peek pv >>= pk
+
+
+foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr (Ptr ()) -> IO CInt
 
 
 data RMAAlignments = RMAAlignments 
@@ -1327,81 +1304,8 @@ data RMAAlignments = RMAAlignments
     , rmaReadLength :: Word32
     }
 
-class EndpointOption eo => ReadableEndpointOption eo b | eo -> b where
-  eoPeekValue :: eo -> Ptr b -> IO b
-
-class EndpointOption eo => WritableEndpointOption eo b | eo -> b where
-  withValueEO :: eo -> b -> (Ptr b -> IO c) -> IO c
-
-instance ReadableEndpointOption OPT_ENDPT_SEND_TIMEOUT Word32 where
-  eoPeekValue _ = peek
-
-instance ReadableEndpointOption OPT_ENDPT_SEND_BUF_COUNT Word32 where
-  eoPeekValue _ = peek
-
-instance ReadableEndpointOption OPT_ENDPT_RECV_BUF_COUNT Word32 where
-  eoPeekValue _ = peek
-
-instance ReadableEndpointOption OPT_ENDPT_KEEPALIVE_TIMEOUT Word32 where
-  eoPeekValue _ = peek
-
-instance ReadableEndpointOption OPT_ENDPT_RMA_ALIGN RMAAlignments where
-  eoPeekValue _ p = do
-    rwla <- #{peek cci_alignment_t, rma_write_local_addr} p
-    rwra <- #{peek cci_alignment_t, rma_write_remote_addr} p
-    rwl  <- #{peek cci_alignment_t, rma_write_length} p
-    rrla <- #{peek cci_alignment_t, rma_read_local_addr} p
-    rrra <- #{peek cci_alignment_t, rma_read_remote_addr} p
-    rrl  <- #{peek cci_alignment_t, rma_read_length} p
-    return RMAAlignments
-        { rmaWriteLocalAddr  = rwla
-        , rmaWriteRemoteAddr = rwra
-        , rmaWriteLength     = rwl
-        , rmaReadLocalAddr   = rrla
-        , rmaReadRemoteAddr  = rrra
-        , rmaReadLength      = rrl
-        }
-
-
-instance ReadableEndpointOption OPT_ENDPT_URI String where
-  eoPeekValue _ = peekCString . castPtr
-
-
-instance WritableEndpointOption OPT_ENDPT_SEND_TIMEOUT Word32 where
-  withValueEO _ = withValueO poke
-
-instance WritableEndpointOption OPT_ENDPT_SEND_BUF_COUNT Word32 where
-  withValueEO _ = withValueO poke
-
-instance WritableEndpointOption OPT_ENDPT_RECV_BUF_COUNT Word32 where
-  withValueEO _ = withValueO poke
-
-instance WritableEndpointOption OPT_ENDPT_KEEPALIVE_TIMEOUT Word32 where
-  withValueEO _ = withValueO poke
-
 withValueO :: Storable a => (Ptr a -> a -> IO ()) -> a -> (Ptr a -> IO b) -> IO b
 withValueO pk v f = alloca$ \pv -> pk pv v >> f pv
-
-class EndpointOption eo where
-  fromEnumEO :: eo -> Int
-
-instance EndpointOption OPT_ENDPT_SEND_TIMEOUT where
-  fromEnumEO OPT_ENDPT_SEND_TIMEOUT = #{const CCI_OPT_ENDPT_SEND_TIMEOUT}
-
-instance EndpointOption OPT_ENDPT_SEND_BUF_COUNT where
-  fromEnumEO OPT_ENDPT_SEND_BUF_COUNT = #{const CCI_OPT_ENDPT_SEND_BUF_COUNT}
-
-instance EndpointOption OPT_ENDPT_RECV_BUF_COUNT where
-  fromEnumEO OPT_ENDPT_RECV_BUF_COUNT = #{const CCI_OPT_ENDPT_RECV_BUF_COUNT}
-
-instance EndpointOption OPT_ENDPT_KEEPALIVE_TIMEOUT where
-  fromEnumEO OPT_ENDPT_KEEPALIVE_TIMEOUT = #{const CCI_OPT_ENDPT_KEEPALIVE_TIMEOUT}
-
-instance EndpointOption OPT_ENDPT_RMA_ALIGN where
-  fromEnumEO OPT_ENDPT_RMA_ALIGN = #{const CCI_OPT_ENDPT_RMA_ALIGN}
-
-instance EndpointOption OPT_ENDPT_URI where
-  fromEnumEO OPT_ENDPT_URI = #{const CCI_OPT_ENDPT_URI}
 
 
 --------------------------
@@ -1409,26 +1313,25 @@ instance EndpointOption OPT_ENDPT_URI where
 --------------------------
 
 -- | Reliable send timeout in microseconds.
-data OPT_CONN_SEND_TIMEOUT = OPT_CONN_SEND_TIMEOUT
+getConn_SendTimeout :: Connection -> IO Word32
+getConn_SendTimeout = getConnectionOpt' #{const CCI_OPT_CONN_SEND_TIMEOUT} peek
+
+-- | See 'getConn_SendTimeout'.
+setConn_SendTimeout :: Connection -> Word32 -> IO ()
+setConn_SendTimeout = setConnectionOpt' #{const CCI_OPT_CONN_SEND_TIMEOUT} poke
 
 
-class ConnectionOption a where
-  fromEnumCO :: a -> Int
+setConnectionOpt' :: Storable a => CInt -> (Ptr a -> a -> IO ()) -> Connection -> a -> IO ()
+setConnectionOpt' opt pk (Connection pconn) v = withValueO pk v$ \pv ->
+      cci_set_opt (castPtr pconn) opt (castPtr pv) >>= cci_check_exception
 
-instance ConnectionOption OPT_CONN_SEND_TIMEOUT where
-  fromEnumCO OPT_CONN_SEND_TIMEOUT = #const CCI_OPT_CONN_SEND_TIMEOUT
-  
-class ConnectionOption co => ReadableConnectionOption co b | co -> b where
-  coReadValue :: co -> Ptr b -> IO b
 
-class ConnectionOption co => WritableConnectionOption co b | co -> b where
-  withValueCO :: co -> b -> (Ptr b -> IO c) -> IO c
+getConnectionOpt' :: CInt -> (Ptr a -> IO a) -> Connection -> IO a
+getConnectionOpt' opt pk (Connection pconn) =
+    alloca$ \pv -> do
+      cci_get_opt (castPtr pconn) opt (castPtr pv) >>= cci_check_exception
+      peek pv >>= pk
 
-instance ReadableConnectionOption OPT_CONN_SEND_TIMEOUT Word32 where
-  coReadValue _ = peek 
-
-instance WritableConnectionOption OPT_CONN_SEND_TIMEOUT Word32 where
-  withValueCO _ = withValueO poke
 
 
 ------------------------------------------

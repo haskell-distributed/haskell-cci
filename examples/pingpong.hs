@@ -14,7 +14,7 @@ import Data.Time             ( getCurrentTime, diffUTCTime )
 import Data.Word             ( Word64 )
 import Foreign.Storable      ( poke )
 import Foreign.Marshal.Alloc ( allocaBytesAligned )
-import Network.CCI           ( withCCI, withPollingEndpoint, endpointURI, accept, Endpoint
+import Network.CCI           ( withCCI, withPollingEndpoint, getEndpt_URI, accept, Endpoint
                              , pollWithEventData, EventData(..), send, Connection
                              , connect, ConnectionAttributes(..), connectionMaxSendSize
                              , createRMARemoteHandle, RMARemoteHandle, rmaWrite
@@ -61,7 +61,7 @@ main = do
     if null nonOptions && null errors && isNothing (oServerURI o) == oIsServer o then
       withCCI$
         withPollingEndpoint Nothing$ \ep -> do
-          endpointURI ep >>= putStrLn
+          getEndpt_URI ep >>= putStrLn
           if oIsServer o then forever$ goServer ep o
             else goClient ep o
      else
