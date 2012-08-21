@@ -110,7 +110,7 @@ import Foreign.C.Types        ( CInt(..), CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
-import Foreign.Storable       ( Storable(peek, poke, peekElemOff, pokeByteOff, peekByteOff) )
+import Foreign.Storable       ( Storable(..) )
 
 import System.Posix.Types     ( Fd(Fd) )
 
@@ -1304,9 +1304,50 @@ setEndpt_RecvBufCount = setEndpointOpt' #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} po
 -- performance for these cases.
 --
 getEndpt_RMAAlign :: Endpoint -> IO RMAAlignments
-getEndpt_RMAAlign = getEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} peekRMAAlignments
-  where
-    peekRMAAlignments p = do
+getEndpt_RMAAlign = getEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} peek
+
+-- | See 'setEndpt_RMAAlign'.
+setEndpt_RMAAlign :: Endpoint -> Word32 -> IO ()
+setEndpt_RMAAlign = setEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} poke
+
+
+-- | Retrieve the endpoint's URI used for listening for connection
+-- requests. The application should never need to parse this URI.
+getEndpt_URI :: Endpoint -> IO String
+getEndpt_URI = getEndpointOpt' #{const CCI_OPT_ENDPT_URI} ((peekCString =<<) . peek)
+
+
+setEndpointOpt' :: Storable a => CInt -> (Ptr a -> a -> IO ()) -> Endpoint ->  a -> IO ()
+setEndpointOpt' opt pk (Endpoint pend) v = withValueO pk v$ \pv ->
+      cci_set_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
+
+getEndpointOpt' :: Storable a => CInt -> (Ptr a -> IO b) -> Endpoint -> IO b
+getEndpointOpt' opt pk (Endpoint pend) =
+    alloca$ \pv -> do
+      cci_get_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
+      pk pv
+
+
+foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
+foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
+
+
+data RMAAlignments = RMAAlignments 
+    { rmaWriteLocalAddr :: Word32
+    , rmaWriteRemoteAddr :: Word32
+    , rmaWriteLength :: Word32
+    , rmaReadLocalAddr :: Word32
+    , rmaReadRemoteAddr :: Word32
+    , rmaReadLength :: Word32
+    }
+  deriving Show
+
+#let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__);}, y__)
+
+instance Storable RMAAlignments where
+  sizeOf _ = #{size cci_alignment_t}
+  alignment _ = #{alignment cci_alignment_t}
+  peek p = do
       rwla <- #{peek cci_alignment_t, rma_write_local_addr} p
       rwra <- #{peek cci_alignment_t, rma_write_remote_addr} p
       rwl  <- #{peek cci_alignment_t, rma_write_length} p
@@ -1321,41 +1362,7 @@ getEndpt_RMAAlign = getEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} peekRMAAlig
         , rmaReadRemoteAddr  = rrra
         , rmaReadLength      = rrl
         }
-
--- | See 'setEndpt_RMAAlign'.
-setEndpt_RMAAlign :: Endpoint -> Word32 -> IO ()
-setEndpt_RMAAlign = setEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} poke
-
-
--- | Retrieve the endpoint's URI used for listening for connection
--- requests. The application should never need to parse this URI.
-getEndpt_URI :: Endpoint -> IO String
-getEndpt_URI = getEndpointOpt' #{const CCI_OPT_ENDPT_URI} (peekCString . castPtr)
-
-
-setEndpointOpt' :: Storable a => CInt -> (Ptr a -> a -> IO ()) -> Endpoint ->  a -> IO ()
-setEndpointOpt' opt pk (Endpoint pend) v = withValueO pk v$ \pv ->
-      cci_set_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
-
-getEndpointOpt' :: CInt -> (Ptr a -> IO a) -> Endpoint -> IO a
-getEndpointOpt' opt pk (Endpoint pend) =
-    alloca$ \pv -> do
-      cci_get_opt (castPtr pend) opt (castPtr pv) >>= cci_check_exception
-      peek pv >>= pk
-
-
-foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
-foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr (Ptr ()) -> IO CInt
-
-
-data RMAAlignments = RMAAlignments 
-    { rmaWriteLocalAddr :: Word32
-    , rmaWriteRemoteAddr :: Word32
-    , rmaWriteLength :: Word32
-    , rmaReadLocalAddr :: Word32
-    , rmaReadRemoteAddr :: Word32
-    , rmaReadLength :: Word32
-    }
+  poke = error "poke RMAAlignments: unimplemented"
 
 withValueO :: Storable a => (Ptr a -> a -> IO ()) -> a -> (Ptr a -> IO b) -> IO b
 withValueO pk v f = alloca$ \pv -> pk pv v >> f pv
@@ -1379,11 +1386,11 @@ setConnectionOpt' opt pk (Connection pconn) v = withValueO pk v$ \pv ->
       cci_set_opt (castPtr pconn) opt (castPtr pv) >>= cci_check_exception
 
 
-getConnectionOpt' :: CInt -> (Ptr a -> IO a) -> Connection -> IO a
+getConnectionOpt' :: Storable a => CInt -> (Ptr a -> IO b) -> Connection -> IO b
 getConnectionOpt' opt pk (Connection pconn) =
     alloca$ \pv -> do
       cci_get_opt (castPtr pconn) opt (castPtr pv) >>= cci_check_exception
-      peek pv >>= pk
+      pk pv
 
 
 
