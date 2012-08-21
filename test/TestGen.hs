@@ -358,8 +358,8 @@ type CommandGen a = State CommandGenState a
 modifyCGS :: (CommandGenState -> (a,CommandGenState)) -> CommandGen a
 modifyCGS f = liftM f get >>= \(a,g) -> put g >> return a
 
-generateInterationId :: CommandGen Int
-generateInterationId = modifyCGS (\g -> (interactionG g,g { interactionG = interactionG g+1}))
+generateInteractionId :: CommandGen Int
+generateInteractionId = modifyCGS (\g -> (interactionG g,g { interactionG = interactionG g+1}))
 
 generateConnectionId :: CommandGen WordPtr
 generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
@@ -371,7 +371,7 @@ generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 -- then having the first process send messages to the second one.
 genInteraction :: TestConfig -> Int -> Int -> CommandGen Interaction 
 genInteraction c p0 p1 = do
-    i <- generateInterationId
+    i <- generateInteractionId
     mt <- getRandomTimeout
     cid <- generateConnectionId
     sends <- genSends [] cid p0 p1 1 1
