@@ -37,7 +37,10 @@ module Network.CCI
   , withPollingEndpoint
   -- * Connections
   , Connection
-  , connectionMaxSendSize
+  , connMaxSendSize
+  , connEndpoint
+  , connAttributes
+  , connContext
   , accept
   , reject
   , connect
@@ -111,8 +114,8 @@ import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
 import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
 import Foreign.Storable       ( Storable(..) )
-
 import System.Posix.Types     ( Fd(Fd) )
+import System.IO.Unsafe       ( unsafePerformIO )
 
 
 #include <cci.h>
@@ -460,8 +463,20 @@ data ConnectionV
 
 
 -- | Maximum size of the messages the connection can send.
-connectionMaxSendSize :: Connection -> IO Word32
-connectionMaxSendSize (Connection pconn) = #{peek cci_connection_t, max_send_size} pconn
+connMaxSendSize :: Connection -> Word32
+connMaxSendSize (Connection pconn) = unsafePerformIO$ #{peek cci_connection_t, max_send_size} pconn
+
+-- | Local endpoint on which the connection was created
+connEndpoint :: Connection -> Endpoint
+connEndpoint (Connection pconn) = Endpoint$ unsafePerformIO$ #{peek cci_connection_t, endpoint} pconn
+
+-- | Attributes of the connection
+connAttributes :: Connection -> ConnectionAttributes
+connAttributes (Connection pconn) = toEnum$ unsafePerformIO$ #{peek cci_connection_t, attribute} pconn
+
+-- | Context provided when the connection was created
+connContext :: Connection -> WordPtr
+connContext (Connection pconn) = unsafePerformIO$ #{peek cci_connection_t, context} pconn
 
 
 -- | Accepts a connection request and establish a connection with a 

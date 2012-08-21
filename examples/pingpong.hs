@@ -16,7 +16,7 @@ import Foreign.Storable      ( poke )
 import Foreign.Marshal.Alloc ( allocaBytesAligned )
 import Network.CCI           ( withCCI, withPollingEndpoint, getEndpt_URI, accept, Endpoint
                              , pollWithEventData, EventData(..), send, Connection
-                             , connect, ConnectionAttributes(..), connectionMaxSendSize
+                             , connect, ConnectionAttributes(..), connMaxSendSize
                              , createRMARemoteHandle, RMARemoteHandle, rmaWrite
                              , withRMALocalHandle, rmaHandle2ByteString, RMA_MODE(..)
                              , unsafePackEventBytes, packEventBytes, disconnect
@@ -87,7 +87,7 @@ goServer ep _o = do
           EvRecv ebs conn -> packEventBytes ebs >>= return . (,) conn . read . unpack
           _ -> error ("goServer: unexpected event"++show evd)
     case cs of
-      AM     -> connectionMaxSendSize conn >>= goServer'
+      AM     ->  goServer'$ connMaxSendSize conn
       RMA sz -> do 
         allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
           withRMALocalHandle ep (cbuf,fromIntegral sz) RMA_READ_WRITE$ \lh -> do
@@ -118,8 +118,8 @@ goClient ep o = do
           EvConnect _ctx (Right conn) -> return conn
           _                           -> print evd >> return (error "goClient: unexpected event.")
     mrmah <- exchangeConnectionSpecs ep o conn
-    sz <- if isNothing mrmah then fmap fromIntegral$ connectionMaxSendSize conn
-            else return$ fromIntegral$ fromJust$ oRMA o
+    let sz = if isNothing mrmah then fromIntegral$ connMaxSendSize conn
+               else fromIntegral$ fromJust$ oRMA o
     allocaBytesAligned sz 4096 $ \cbuf -> do
       when (sz>0)$ poke cbuf 0
       unsafePackCStringLen (cbuf,sz) >>= \sbuf ->
