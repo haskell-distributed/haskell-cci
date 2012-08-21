@@ -12,6 +12,8 @@
 {-# LANGUAGE ForeignFunctionInterface   #-}
 {-# LANGUAGE GADTs                      #-} 
 
+#let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__);}, y__)
+
 -- | Haskell bindings for CCI. 
 --
 -- Copyright 2006 Parallel Scientific.
@@ -112,7 +114,7 @@ import Data.Word              ( Word8, Word32, Word64 )
 import Foreign.C.Types        ( CInt(..), CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
-import Foreign.Marshal.Alloc  ( alloca, allocaBytes )
+import Foreign.Marshal.Alloc  ( alloca, allocaBytesAligned )
 import Foreign.Storable       ( Storable(..) )
 import System.Posix.Types     ( Fd(Fd) )
 import System.IO.Unsafe       ( unsafePerformIO )
@@ -565,7 +567,7 @@ connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
       Nothing -> fconnect nullPtr
       Just ts -> 
         let (sec,usec) = divMod ts (10^(6::Int))
-         in allocaBytes #{size struct timeval}$ \ptv -> do
+         in allocaBytesAligned #{size struct timeval} #{alignment struct timeval}$ \ptv -> do
               #{poke struct timeval, tv_sec} ptv sec
               #{poke struct timeval, tv_usec} ptv usec
               fconnect ptv
@@ -723,7 +725,7 @@ foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CCh
 sendv :: Connection -> [ByteString] -> WordPtr -> [SEND_FLAG] -> IO ()
 sendv (Connection pconn) msgs pctx flags = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
     let csendv = if elem SEND_BLOCKING flags then safe_cci_sendv else cci_sendv
-     in allocaBytes (clen * #{size struct iovec})$ \piovecs -> do
+     in allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
           sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
           csendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) (enumFlags flags)
              >>= cci_check_exception
@@ -1356,8 +1358,6 @@ data RMAAlignments = RMAAlignments
     , rmaReadLength :: Word32
     }
   deriving Show
-
-#let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__);}, y__)
 
 instance Storable RMAAlignments where
   sizeOf _ = #{size cci_alignment_t}
