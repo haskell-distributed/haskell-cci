@@ -84,10 +84,21 @@ Here's a listing of the possible commands:
 
       | Quit
 
+* Accept connection_id
+
+This command instructs a process to accept a connection bound to the
+given identifier connection_id if it ever receives such a connection
+request. This operation completes immediately.
+
+* Reject connection_id
+
+Instructs a process to reject a connection bound to the given identifier
+connection_id if it ever receives such a connection request. This 
+operation completes immediately.
 
 * ConnectTo uri pid connection_id (Just timeout)
 
-This command instructs a process to issue a cci_connect call using the
+Instructs a process to issue a cci_connect call using the
 given uri and timeout, and binding the resulting connection with the 
 identifier connection_id. The process completes the command when the 
 cci_connect call returns. pid is the indentifier of the process
@@ -101,7 +112,7 @@ after the interacting processes have been launched.
 Instructs a process to poll repeteadly for events using cci_get_event
 until the connection bound to the identifier connection_id is 
 stablished. The process completes the operation when cci_get_event 
-yields a CCI_EVENT_CONNECT event for the connection.
+yields a CCI_EVENT_CONNECT or CCI_EVENT_ACCEPT event for the connection.
 
 This operation requires the remote process to be continually polling for
 events. This is so because the CCI API uses cci_get_event both to
@@ -109,6 +120,12 @@ process internal events and to yield events to the user. As of the date
 of this writing the verbs driver of CCI does not use a progress thread.
 Therefore, this command requires cooperation of the remote process to 
 complete.
+
+* Disconnect connection_id
+
+Instructs a process to disconnect from the connection bound to the
+identifier connection_id. This operation completes when the call to
+cci_disconnect returns.
 
 * Send connection_id msg_id msg
 
@@ -123,6 +140,91 @@ until the message bound to the identifier msg_id is sent. The process
 completes the operation when cci_get_event yields a CCI_EVENT_SEND event
 for the connection bound to identifier connection_id and the message
 bound to msg_id.
+
+* WaitRecv conn_id msg_id
+
+Instructs a process to poll repeteadly for events using cci_get_event
+until the message bound to the identifier msg_id is received. 
+The process completes the operation when cci_get_event yields a 
+CCI_EVENT_RECV event for the connection bound to identifier 
+connection_id and the message bound to msg_id.
+
+* RMAReuseRMAHandle connection_id
+
+Instructs a process to reuse a previously allocated buffer if an RMA
+handle exchange is ever requested. This operation completes immediately.
+If no previously allocated buffer exist a new buffer is created when
+the RMA handle exchange is requested.
+
+* RMAHandleExchange connection_id
+
+Instructs a process to exchange RMA handles with another process through
+the connection bound to the identifier connection_id. The process either
+allocates and registers a new buffer or recycles an existing one. The
+choice depends on whether a RMAReuseRMAHandle command was previously
+issued. This command completes when the call to cci_send for sending the
+local RMA handle returns.
+
+* RMAWaitExchange connection_id
+
+Instructs a process to wait for the RMA remote handle on the connection
+bound to identifier connection_id. This command completes when a 
+CCI_EVENT_RECV event with the remote handle is yielded by cci_get_event.
+
+This operation requires cooperation from the other process in order to
+complete. The other process needs to be polling with cci_get_event.
+
+* RMAFreeHandles connection_id
+
+Instructs a process to set aside RMA handles that won't be used again in a
+given interaction for the connection bound to the indetifier connection_id.
+The handles can be taken back by an RMAReuseRMAHandle command. This command
+completes immediately.
+
+* RMAWrite connection_id msg_id
+
+Instructs a process to perform an RMA write operation on the connection
+bound to the identifier connection_id. The contents of the RMA transfer
+are generated from the message identifier msg_id. This command completes
+when the call to cci_rma returns.
+
+* RMAWaitWrite connection_id msg_id
+
+Instructs a process to wait for an RMA write operation with identifier 
+msg_id on the connection bound to identifier connection_id to complete.
+This command completes when a CCI_EVENT_SEND or CCI_EVENT_RECV event
+is yielded by cci_get_event with the identifier msg_id.
+
+This operation requires cooperation from the other process in order to
+complete. The other process needs to be polling with cci_get_event.
+
+* RMAPrepareRead connection_id msg_id
+
+Instructs a process to initialize the rma buffer registered with the 
+connection bound to identifier connection_id with data generated from 
+the identifier msg_id. The operation completes immediately.
+
+* RMARead connection_id msg_id
+
+Instructs a process to perform an RMA read operation on the connection
+bound to the identifier connection_id. The contents of the RMA transfer
+should have been produced with a previous RMAPrepareRead command in the
+remote process. This command completes when the call to cci_rma returns.
+
+* RMAWaitRead connection_id msg_id
+
+Instructs a process to wait for an RMA read operation with identifier 
+msg_id on the connection bound to identifier connection_id to complete.
+This command completes when a CCI_EVENT_SEND or CCI_EVENT_RECV event
+is yielded by cci_get_event with the identifier msg_id.
+
+This operation requires cooperation from the other process in order to
+complete. The other process needs to be polling with cci_get_event.
+
+* Quit
+
+Instructs a process to stop processing commands and terminate. This
+operation completes immediately.
 
 
 == Interpreting commands == 
@@ -158,15 +260,65 @@ each bunch of commands is explicitly stated.
 
 When a command needs coperation some determinism in the execution is 
 lost when delivering the command simultaneously to different processes.
-We could change the Worker so it permanently polls for events. Since 
-then we doesn't need a command to poll, all the Wait-like commands could
-not possibly block, therefore interpreting commands would be simpler.
-We would lose some of the determinism we strive to achieve. If all
-commands required cooperation, then this choice would make sense. But to
-date some commands are independent and for these having more
-determinism during execution seems preferable.
+We could change the Worker so it permanently polls for events, thus no
+command would need cooperation explicitly coordinated. All the 
+Wait-like commands could not possibly block, therefore interpreting
+commands would be simpler but we would lose some of the determinism we 
+strive to achieve. 
+
+When an interaction is to be executed, it is scanned to find the amount of
+needed processes, then so many processes running the Worker program are
+launched, and then commands are passed to the processes. If any process
+exceedes a timeout of a few seconds to respond, or if it terminates early, 
+the interaction is reported as failing.
 
 
 == Generation and shrinking ==
 
+The generation of an interaction starts with elemental interactions which are
+later merged. The elemental interactions involve communication between two
+endpoints. Many of these interactions are generated for different pairs of
+processes and then they are merged randomly.
 
+Currently an elemental interaction opens a connection, sends some messages,
+perhaps does some rma operations and then closes the connection.
+
+type Interaction = [(Int,ProcCommand)]
+
+The type @Interaction@ pairs each command with an identifier of the elemental
+interaction in which the command first appears. All commands in an elemental
+interaction get the same identifier bound to them. As commands are merged 
+into more complex interactions, the identifier is carried along. 
+
+The elemental interaction identifiers allow to strip from a composite
+interaction one of its elemental interactions. This is an important operation
+for reducing failing interactions to a minimal form which is easier to debug 
+(so called shrinking).
+
+We also implement another form of shrinking which only removes some specific 
+commands from an interaction rather than the whole of it.
+
+Since there are infinite large interactions, we constraint the size of the
+generated interactions with configuration parameters. These configuration
+parameters can be used to limit the total amount of messages in each elemental
+interaction, the amount of processes that interactions can use, the size of
+the messages or the amount of simultaneous elemental interactions between a
+single pair of processes.
+
+
+== TODO ==
+
+Fix possible locking in RMAWaitHandleExchange.
+
+Change the representation of traces to enable delivering different commands to
+different processes simultaneously.
+
+Test rma unregister.
+
+Test sending many messages.
+
+Test using a blocking endpoint.
+
+Improve shrinking by removing send further.
+
+Implement an infinite test mode in which tests are progressively grown.
