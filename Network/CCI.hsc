@@ -653,10 +653,10 @@ instance Enum ConnectionAttributes where
 
 -- | Send a short message.
 --
--- A short message limited to the size of 'connectionMaxSendSize'.
+-- A short message limited to the size of 'connMaxSendSize'.
 --
 -- If the application needs to send a message larger than
--- 'connectionMaxSendSize', the application is responsible for
+-- 'connMaxSendSize', the application is responsible for
 -- segmenting and reassembly or it should use 'rmaWrite'.
 --
 -- When send returns, the provided ByteString is disposable. By
@@ -682,14 +682,15 @@ instance Enum ConnectionAttributes where
 --
 --  * If the 'SEND_NO_COPY' is specified, the application is
 --    indicating that it does not need the buffer back until the send
---    completion occurs (which is most useful when FLAG_BLOCKING is
+--    completion occurs (which is most useful when 'SEND_BLOCKING' is
 --    not specified). The CCI implementation is therefore free to use
 --    \"zero copy\" types of transmission with the buffer -- if it wants to.
---    Make sure to keep alive the memory of the ByteString message 
---    or it could be garbage collected before the send completes.
+--    If 'SEND_BLOCKING' is not specified, make sure to keep alive and pinned
+--    the memory of the ByteString message or it could be invalidated before
+--    the send completes.
 --
 --  * 'SEND_SILENT' means that no completion will be generated for
---    non-FLAG_BLOCKING sends. For reliable ordered connections,
+--    non-'SEND_BLOCKING' sends. For reliable ordered connections,
 --    since completions are issued in order, the completion of any
 --    non-SILENT send directly implies the completion of any previous
 --    SILENT sends. For unordered connections, completion ordering is not
@@ -716,7 +717,7 @@ foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CCh
 -- | Send a short vectored (gather) message.
 --
 -- Like 'send', 'sendv' sends a short message bound by
--- 'connectionMaxSendSize'. Instead of a single data buffer,
+-- 'connMaxSendSize'. Instead of a single data buffer,
 -- 'sendv' allows the application to gather a list of 
 -- ByteStrings.
 --
@@ -976,7 +977,7 @@ rmaHandle2ByteString :: RMALocalHandle -> ByteString
 rmaHandle2ByteString (RMALocalHandle w64) = pack [ fromIntegral ((w64 `shiftR` i) .&. 255)  | i<-[56,48..0] ]
 
 -- | Creates a remote handle from a ByteString representation of a remote
--- handle (has to have arrived through an active message).
+-- handle. It is the inverse 'rmaHandle2ByteString'.
 createRMARemoteHandle :: ByteString -> Maybe RMARemoteHandle
 createRMARemoteHandle b = case B.length b of
                             8 -> Just$ RMARemoteHandle$ toWord64$ unpack b
@@ -1010,9 +1011,6 @@ createRMARemoteHandle b = case B.length b of
 -- be explicitly returned later via returnEvent.
 --
 -- May throw driver-specific errors.
---
--- The garbage collector will call 'returnEvent' if there are no
--- references to the returned event and memory is claimed.
 --
 getEvent :: Endpoint -> IO (Maybe (Event s))
 getEvent (Endpoint pend) = alloca$ \pev -> do
@@ -1092,9 +1090,11 @@ pollWithEventData endp f = go
 
 -- | Event representation.
 --
--- The purpose of the @s@ parameter is to prevent the Event
--- from escaping the 'withEventData'-like functions.
--- Though it could still be done by launching threads from them or using unsafe calls.
+-- The @s@ parameter encodes the scope in which the event is valid. 
+-- It prevents the Event from escaping the 'withEventData'-like functions
+-- which clearly define its lifetime. The protection is limited though.
+-- Launching threads from these functions or using existential types 
+-- would sidestep the constraint.
 --
 newtype Event s = Event (Ptr EventV)
   deriving (Storable, Show)
@@ -1147,9 +1147,11 @@ getEventData ev@(Event pev) = do
 
 -- | Bytes owned by an 'Event'. They will be released when the event is returned.
 --
--- The purpose of the @s@ parameter is to prevent the EventBytes
--- from escaping the 'withEventData'-like functions.
--- Though it could still be done by launching threads from it or using unsafe calls.
+-- The @s@ parameter encodes the scope in which the event is valid. 
+-- It prevents the EventBytes from escaping the 'withEventData'-like functions
+-- which clearly define their lifetime. The protection is limited though.
+-- Launching threads from these functions or using existential types 
+-- would sidestep the constraint.
 --
 newtype EventBytes s = EventBytes CStringLen
   deriving Show
@@ -1168,9 +1170,11 @@ unsafePackEventBytes (EventBytes bs) = unsafePackCStringLen bs
 
 -- | Representation of data contained in events.
 --
--- The purpose of the @s@ parameter is to prevent the 'EventData' value
--- from escaping the 'withEventData'-like functions.
--- Though it could still be done by launching threads from it or using unsafe calls.
+-- The @s@ parameter encodes the scope in which the event is valid. 
+-- It prevents the EventData from escaping the 'withEventData'-like functions
+-- which clearly define their lifetime. The protection is limited though.
+-- Launching threads from these functions or using existential types 
+-- would sidestep the constraint.
 --
 data EventData s =
 
