@@ -1,8 +1,8 @@
 These notes document some decisions taken during elaboration of the CCI
 bindings for Haskell.
 
-The bindings intend to be as slim as possible so further functionality can be
-built on top of them if needed. For the sake of usability, the bindings
+The bindings intend to be as slim as possible, leaving further features
+to be built on top if desired. For the sake of usability, the bindings
 include some small convenience functions which are not strictly necessary. 
 
 In what follows we discuss the parts of the API.
@@ -85,8 +85,8 @@ may be possible that we made this field writable in the future. We represent
 this user suplied pointers in Haskell with the Foreign.Ptr.WordPtr type.
 
 As connection attributes reliability/ordering/multicast are few, we translate
-C enumeration into a Haskell enumeration. More efficient solutions are possible 
-though not as convenient.
+C enumeration into a Haskell enumerated type (abstract datatype with an Enum 
+instance). More efficient solutions are possible though not as convenient.
 
 == Data transfers ==
 
@@ -147,6 +147,82 @@ the event after it has been returned. However it is possible to sidestep this
 restriction by launching threads from the callback or using existential 
 types. We do not try to further protect against these uses.
 
+data EventData s =
+   ...
+  | EvRecv (EventBytes s) Connection
+  ...
+
+newtype EventBytes s = EventBytes CStringLen
+
+When an @EvRecv bs conn@ event is received, arrival of a new message is being
+notified. The message is available as a value of type @EventBytes s@. This is
+represented as a pointer to the message data which will be invalidated when
+the event is returned. We provide the following functions for converting the
+EventBytes into a ByteString:
+
+packEventBytes :: EventBytes s -> IO ByteString
+
+unsafePackEventBytes :: EventBytes s -> IO ByteString
+
+The first function copies the data, and the second just wraps the pointer in a
+ByteString. The second method is unsafe because the produced ByteString will
+be invalid once the event is returned. The unsafe function provided some
+speedups in benchmarks though. Therefore we pass to the user the decision on
+what to do with the message data.
+
+We could have used the CStringLen type instead of @EventBytes s@, but the
+latter clearly delineates what we expect the user to do with it through the
+limited functions we offer, and it also carries the scope type parameter which
+makes accidental access of returned data less likely.
+
 == Options ==
 
+There are various parameters that can be inquiered or set from the transport
+implementation. For instance, timeouts for sends and connection requests, or
+an endpoint URI, or the amount of resources allotted for the endpoint.
+
+Different parameters use different types for their values. The C API has
+gotten away with untyped calls:
+
+CCI_DECLSPEC int cci_set_opt(void * handle,cci_opt_name_t name, void *val);
+CCI_DECLSPEC int cci_get_opt(void * handle,cci_opt_name_t name, void *val);
+
+Here handle can be either a connection or an endpoint object, and the type of
+the thing pointed by val depends on the value passed as "name" which
+identifies the parameter to query or set.
+
+In Haskell we have made access to parameters typed at the expense of defining
+querying and setting functions for each available parameter:
+
+getEndpt_KeepAliveTimeout :: Endpoint -> IO Word32
+setEndpt_KeepAliveTimeout :: Endpoint -> Word32 -> IO ()
+
+getEndpt_SendTimeout :: Endpoint -> IO Word32
+setEndpt_SendTimeout :: Endpoint -> Word32 -> IO ()
+
+getEndpt_SendBufCount :: Endpoint -> IO Word32
+setEndpt_SendBufCount :: Endpoint -> Word32 -> IO ()
+
+getEndpt_RecvBufCount :: Endpoint -> IO Word32
+setEndpt_RecvBufCount :: Endpoint -> Word32 -> IO ()
+
+getEndpt_RMAAlign :: Endpoint -> IO RMAAlignments
+
+getEndpt_URI :: Endpoint -> IO String
+
+getConn_SendTimeout :: Connection -> IO Word32
+setConn_SendTimeout :: Connection -> Word32 -> IO ()
+
+Parameters which are read-only do not have setter functions.
+
+== Error handling ==
+
+Most functions in the CCI C API can return an integer error code. We test for
+this result on every function and throw an exception if the call fails. The
+carries the error code. A function strError can be used to obtain a human
+readable description of the error.
+
+We currently treat errors as being sparse enough to tolerate being converted
+to and from a Haskell enumerated type (abstract datatype with an Enum 
+instance).
 
