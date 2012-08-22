@@ -1,0 +1,152 @@
+These notes document some decisions taken during elaboration of the CCI
+bindings for Haskell.
+
+The bindings intend to be as slim as possible so further functionality can be
+built on top of them if needed. For the sake of usability, the bindings
+include some small convenience functions which are not strictly necessary. 
+
+In what follows we discuss the parts of the API.
+
+== Initialization & cleanup ==
+
+The call initCCI gathers configuration parameters from the environment
+and setups internal state. The call finalizeCCI frees this state.
+
+As we will do with many other actions for requesting and releasing resources,
+we offer a function withCCI which puts an action between evaluations of
+initCCI and finalizeCCI and makes sure that finalizeCCI is eventually called.
+
+Almost all API calls are invalid after finalizeCCI has been evaluated. The
+most likely behavior is the application crashing if finalizeCCI is evaluated
+prematurely. The CCI transport implementations, or the bindings or a layer on
+top could guard each API call with a test to see if finalizeCCI has been
+evaluated and if so produce a more graceful error. We leave this problem to
+the layers above and below.
+
+== Devices ==
+
+Devices are interfaces to the network hardware. There is a call getDevices
+that returns the current state of all devices known to the CCI transport
+implementation.
+
+The method cci_get_devices of the C API is peculiar in that it returns memory
+maintained by the CCI transport implementation. This memory is never released,
+but it contents may be updated whenever a later call to cci_get_devices is
+made. Because of this potential memory update, we copy all the data into
+Haskell whenever getDevices is evaluated and provide pure functions for
+accessing it. This makes evident that a later call to getDevices is necessary
+if the user wants the device data updated. Copying the data into Haskell in
+this case looks harmless since the amount of devices is limited.
+
+== Endpoints ==
+
+An endpoint is a software interface to a device. It provides the buffers,
+queues and other resources required for communication. Connections to many
+other processes can be done through a single endpoint.
+
+There are two functions for creating endpoints: createPollingEndpoint and
+createBlockingEndpoint. The C API provides a single call cci_create_endpoint
+which should be given different parameters according to whether the user
+intends to later block or poll for events.
+
+In theory, createBlockingEndpoint should suffice for both polling and
+blocking. But the truth is that different code is used in both cases, and
+therefore different bugs have appeared in practice, and it is likely that
+different transports offer distinct performance characteristics with one way
+or the other. Therefore the need to treat the two cases separatedly.
+
+There is a function destroyEndpoint which releases endpoint resources. And we
+include functions withPollingEndpoint and withBlockingEndpoint that ensure an
+endpoint is eventually released.
+
+Listening for events on a destroyed endpoint is likely to cause the
+application to crash. Again, we defer producing more graceful errors to other
+layers.
+
+== Connections ==
+
+Connections are the context in which communication with a specific peer
+occurs. They can have associated reliability and ordering requirements.
+
+Stablishing a connection requires the peers to engage in client and server
+roles. The client peer issues a call "connect" specifying a remote endpoint,
+and the server peer must be listening for events on that endpoint. The client
+peer then needs to listen for events to learn if its connection request was
+accepted or not. When receiving a connection request, the server can use calls
+"accept" or "reject" for that purpose.
+
+After the connection is established, either of the peers can issue a call to
+"disconnect" to terminate the connection.
+
+Since connections are object whose attributes do not change during its
+lifetime, we provide pure accessor functions. The connection offers however a
+"context" field which is used to handle an pointer provided by the user. It
+may be possible that we made this field writable in the future. We represent
+this user suplied pointers in Haskell with the Foreign.Ptr.WordPtr type.
+
+As connection attributes reliability/ordering/multicast are few, we translate
+C enumeration into a Haskell enumeration. More efficient solutions are possible 
+though not as convenient.
+
+== Data transfers ==
+
+The call "send" can be used to deliver a ByteString through a connection. The
+ByteString length is limited by the maximum send size allowed by the 
+connection. Depending on the flags provided we make either a safe or unsafe 
+foreign call to cci_send. When cci_send is instructed to block until the
+send operation completes, we use a safe foreign call so the rest of the Haskell
+runtime threads can continue execution.
+
+Currently, one rough corner is the case when zero copy and non-blocking
+behavior is requested. In such case the ByteString message needs to be pinned
+and kept alive until the send completes. We could perhaps expose a lower 
+level function which would take a pointer directly, instead of
+having it wrapped in a ByteString:
+ * cases only silent, only blocking, or none, could be handled with the current
+   send call
+ * cases only zero or "zero and silent" could be handled with the lower level
+   send call
+This could make a the API requirements more evident. A similar split would be
+necessary for the call "sendv". 
+
+RMA operations are done with the calls "rmaRead" and "rmaWrite". Unlike in the
+C API, we use different types for local and remote rma handles. These handles
+are obtained via the functions rmaRegister and createRMARemoteHandle. 
+
+RMA handles are deregistered with the call rmaDeregister, and there is a call
+withRMALocalHandle that ensures the handle is deregistered.
+
+The buffers for RMA operations are not wrapped in bytestrings in the call
+rmaRegister. This is to hint more explicitly that they are not supposed to be
+under control of the garbage collector, otherwise the buffer may be freed or 
+relocated in the middle of an rma transfer.
+
+== Events ==
+
+Events are produced for connection requests, send completions, receive events,
+etc. They are pulled out of the transport implementation with the call
+getEvent. Events might be bound to network hardware resources that are
+employed to avoid copying data multiple times. Therefore, the CCI transport
+implementation needs to be notified when the event is no longer accessed with
+a call to returnEvent. 
+
+Functions tryWithEventData, withEventData and pollWithEventData ensure that
+returnEvent is eventually called. Since the event data does not survive
+evaluation of this functions, the EventData type is given a phantom type parameter
+for encoding the scope in which the event data can be accessed.
+
+-- | Like 'tryWithEventData' but loops polling until events are available.
+pollWithEventData :: 
+   Endpoint   -- ^ Endpoint on which to listen for events.
+   -> (forall s. EventData s -> IO a) -- ^ callback when an event is received.
+   -> IO a  -- ^ Yields the callback result.
+
+The type variable "a" of pollWithEventData cannot be instantiated to anything
+containing the type variable "s", so it provides some protection from using
+the event after it has been returned. However it is possible to sidestep this
+restriction by launching threads from the callback or using existential 
+types. We do not try to further protect against these uses.
+
+== Options ==
+
+
