@@ -92,7 +92,6 @@ module Network.CCI
   , getEndpt_KeepAliveTimeout
   , setEndpt_KeepAliveTimeout
   , getEndpt_RMAAlign
-  , setEndpt_RMAAlign
   , getEndpt_URI
   -- * Connection options
   , getConn_SendTimeout
@@ -1326,11 +1325,6 @@ setEndpt_RecvBufCount = setEndpointOpt' #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} po
 --
 getEndpt_RMAAlign :: Endpoint -> IO RMAAlignments
 getEndpt_RMAAlign = getEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} peek
-
--- | See 'setEndpt_RMAAlign'.
-setEndpt_RMAAlign :: Endpoint -> Word32 -> IO ()
-setEndpt_RMAAlign = setEndpointOpt' #{const CCI_OPT_ENDPT_RMA_ALIGN} poke
-
 
 -- | Retrieve the endpoint's URI used for listening for connection
 -- requests. The application should never need to parse this URI.
