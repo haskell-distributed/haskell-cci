@@ -91,7 +91,7 @@ goServer ep _o = do
       RMA sz -> do 
         allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
           withRMALocalHandle ep (cbuf,fromIntegral sz) RMA_READ_WRITE$ \lh -> do
-            send conn (rmaHandle2ByteString lh) 0 []
+            send conn (rmaHandle2ByteString lh) 0
             goServer' sz
   where
     goServer' sz = allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
@@ -103,7 +103,7 @@ goServer ep _o = do
                 if not (B.null bs) && B.head bs == 1 then
                   return$ Just conn
                  else
-                  send conn (B.take (B.length bs) sbuf) 0 [] >> return Nothing
+                  send conn (B.take (B.length bs) sbuf) 0 >> return Nothing
             EvSend _ _ _    -> return Nothing
             _ -> print evd >> return Nothing
 
@@ -149,7 +149,7 @@ goClient ep o = do
         printf "%8d\t%8.2f us\t\t%8.2f MB/s\n" current_size (fromRat lat :: Double) (fromRat bw :: Double)
 
       -- say goodbye
-      send conn (B.singleton 1) 0 []
+      send conn (B.singleton 1) 0
       void$ loopWhileM id$ pollWithEventData ep$ \evd ->
         case evd of
           EvSend _ _ _    -> return False
@@ -165,7 +165,7 @@ goClient ep o = do
             _            -> print evd >> return True
 
     testRoundTrip conn sbuff Nothing msg_size = do
-        send conn (B.take (fromIntegral msg_size) sbuff) 0 []
+        send conn (B.take (fromIntegral msg_size) sbuff) 0
         void$ loopWhileM id$ pollWithEventData ep$ \evd ->
           case evd of
             EvRecv _ _conn  -> return False
@@ -175,7 +175,7 @@ goClient ep o = do
 exchangeConnectionSpecs :: Endpoint -> Options -> Connection -> IO (Maybe RMARemoteHandle)
 exchangeConnectionSpecs ep o conn = do
     let cs = connectionSpecs o
-    send conn (pack$ show cs) 0 []
+    send conn (pack$ show cs) 0
     case cs of
       RMA _ -> loopWhileM isNothing$ pollWithEventData ep$ \evd ->
         case evd of

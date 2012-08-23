@@ -55,8 +55,15 @@ module Network.CCI
   -- ** Active Messages
   -- $amsg
   , send
+  , sendBlocking
+  , sendSilent
+  , sendNoCopy
+  , sendNoCopySilent
   , sendv
-  , SEND_FLAG(..)
+  , sendvBlocking
+  , sendvSilent
+  , sendvNoCopy
+  , sendvNoCopySilent
   -- ** RMA
   -- $rma
   , rmaRegister
@@ -93,6 +100,7 @@ module Network.CCI
   , setEndpt_KeepAliveTimeout
   , getEndpt_RMAAlign
   , getEndpt_URI
+  , RMAAlignments(..)
   -- * Connection options
   , getConn_SendTimeout
   , setConn_SendTimeout
@@ -368,11 +376,6 @@ data EndpointV
 --
 -- The OS handle returned by 'createBlockingEndpoint' can be manipulated with
 -- 'Control.Concurrent.threadWaitRead' and 'Control.Concurrent.threadWaitWrite'.
---
--- The garbage collector will release resources associated with the handle
--- if all references to the endpoint are lost and the memory it uses is
--- ever claimed. Additionally, you can call 'destroyEndpoint' to avoid 
--- depending on the garbage collector for that sake.
 --
 -- May throw:
 --
@@ -669,48 +672,58 @@ instance Enum ConnectionAttributes where
 --
 --  * Unreliable: when the buffer is re-usable (i.e., local completion).
 --
--- Flags:
---
---  * If the 'SEND_BLOCKING' flag is specified, 'send' will also
---    block until the send completion has occurred. In this case, there
---    is no event returned for this send via 'getEvent', the send
---    completion status is returned via 'send'. A safe foreign call
---    is made when using this flag, if you intend to call this function
---    as blocking a lot, perhaps you should consider implementing the blocking 
---    behavior on the Haskell side.
---
---  * If the 'SEND_NO_COPY' is specified, the application is
---    indicating that it does not need the buffer back until the send
---    completion occurs (which is most useful when 'SEND_BLOCKING' is
---    not specified). The CCI implementation is therefore free to use
---    \"zero copy\" types of transmission with the buffer -- if it wants to.
---    If 'SEND_BLOCKING' is not specified, make sure to keep alive and pinned
---    the memory of the ByteString message or it could be invalidated before
---    the send completes.
---
---  * 'SEND_SILENT' means that no completion will be generated for
---    non-'SEND_BLOCKING' sends. For reliable ordered connections,
---    since completions are issued in order, the completion of any
---    non-SILENT send directly implies the completion of any previous
---    SILENT sends. For unordered connections, completion ordering is not
---    guaranteed -- it is not safe to assume that application protocol
---    semantics imply specific unordered SILENT send completions. The
---    only ways to know when unordered SILENT sends have completed (and
---    that the local send buffer is \"owned\" by the application again) is
---    either to close the connection or issue a non-SILENT send. The
---    completion of a non-SILENT send guarantees the completion of all
---    previous SILENT sends.
---
 -- May throw 'ERR_DISCONNECTED', 'ERR_RNR', or driver-specific errors.
 --
-send :: Connection -> ByteString -> WordPtr -> [SEND_FLAG] -> IO ()
-send (Connection pconn) msg pctx flags = unsafeUseAsCStringLen msg$ \(cmsg,clen) -> 
-    let csend = if elem SEND_BLOCKING flags then safe_cci_send else cci_send
-     in csend pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) (fromIntegral$ foldl (\f-> (f.|.) . fromEnum) (0::Int) flags)
+send :: Connection -> ByteString -> WordPtr -> IO ()
+send conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx 0 
+
+-- | Like 'send' but will also block until the send completion has occurred.
+--
+-- In this case, there is no event returned for this send via 'getEvent', the
+-- send completion status is delivered in a 'CCIException' if sending fails.
+-- A safe foreign call is made when using this flag.
+--
+sendBlocking :: Connection -> ByteString -> WordPtr -> IO ()
+sendBlocking (Connection pconn) msg pctx = unsafeUseAsCStringLen msg$ \(cmsg,clen) -> 
+     safe_cci_send pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) #{const CCI_FLAG_BLOCKING}
+           >>= cci_check_exception
+
+-- | Like 'send' but no send completion will be generated. 
+-- 
+-- For reliable ordered connections, since completions are issued in order, the 
+-- completion of any non-SILENT send directly implies the completion of any
+-- previous SILENT sends. For unordered connections, completion ordering is
+-- not guaranteed -- it is not safe to assume that application protocol
+-- semantics imply specific unordered SILENT send completions. The
+-- only ways to know when unordered SILENT sends have completed is
+-- either to close the connection or issue a non-SILENT send. The
+-- completion of a non-SILENT send guarantees the completion of all
+-- previous SILENT sends.
+--
+sendSilent :: Connection -> ByteString -> WordPtr -> IO ()
+sendSilent conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx #{const CCI_FLAG_SILENT}
+
+-- | Like 'send' but the message buffer remains in use until the send completion occurs. 
+--
+-- The CCI implementation is therefore free to use \"zero copy\" types 
+-- of transmission with the buffer if it wants to.
+--
+sendNoCopy :: Connection -> CStringLen -> WordPtr -> IO ()
+sendNoCopy conn msg pctx = send' conn msg pctx #{const CCI_FLAG_NO_COPY}
+
+-- | Like 'sendNoCopy' and 'sendSilent'.
+sendNoCopySilent :: Connection -> CStringLen -> WordPtr -> IO ()
+sendNoCopySilent conn msg pctx = send' conn msg pctx (#{const CCI_FLAG_NO_COPY} .|. #{const CCI_FLAG_SILENT})
+
+
+send' :: Connection -> CStringLen -> WordPtr -> CInt -> IO ()
+send' (Connection pconn) (cmsg,clen) pctx flags = 
+     cci_send pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) flags
            >>= cci_check_exception
 
 foreign import ccall unsafe cci_send :: Ptr ConnectionV -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
 foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CChar -> Word32 -> Ptr () -> CInt -> IO CInt
+
 
 
 -- | Send a short vectored (gather) message.
@@ -722,23 +735,49 @@ foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CCh
 --
 -- May throw driver-specific errors.
 --
-sendv :: Connection -> [ByteString] -> WordPtr -> [SEND_FLAG] -> IO ()
-sendv (Connection pconn) msgs pctx flags = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
-    let csendv = if elem SEND_BLOCKING flags then safe_cci_sendv else cci_sendv
-     in allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
-          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
-          csendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) (enumFlags flags)
-             >>= cci_check_exception
-  where
-    unsafeUseAsCStringLens :: [ByteString] -> [CStringLen] -> Int -> ([CStringLen] -> Int -> IO a) -> IO a
-    unsafeUseAsCStringLens (x:xs) acc len f
-        | seq len True = unsafeUseAsCStringLen x$ \cx -> unsafeUseAsCStringLens xs (cx:acc) (len+1) f
-    unsafeUseAsCStringLens _ acc len f = f acc len
+sendv :: Connection -> [ByteString] -> WordPtr -> IO ()
+sendv conn msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
+    sendv' conn cmsgs clen pctx 0
 
-    write_iovec piovecs offs (cmsg,clen) = do
-        let p = plusPtr piovecs (offs * #{size struct iovec})
-        #{poke struct iovec, iov_base} p cmsg
-        #{poke struct iovec, iov_len} p clen
+-- | Like 'sendv' and 'sendBlocking'.
+sendvBlocking :: Connection -> [ByteString] -> WordPtr -> IO ()
+sendvBlocking (Connection pconn) msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
+     allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
+          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
+          safe_cci_sendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) #{const CCI_FLAG_BLOCKING}
+             >>= cci_check_exception
+
+-- | Like 'sendv' and 'sendSilent'.
+sendvSilent :: Connection -> [ByteString] -> WordPtr -> IO ()
+sendvSilent conn msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen ->
+    sendv' conn cmsgs clen pctx #{const CCI_FLAG_SILENT}
+
+-- | Like 'sendv' and 'sendNoCopySilent'.
+sendvNoCopy :: Connection -> [CStringLen] -> WordPtr -> IO ()
+sendvNoCopy conn cmsgs pctx = sendv' conn cmsgs (Prelude.length cmsgs) pctx #{const CCI_FLAG_NO_COPY}
+
+-- | Like 'sendv' and 'sendNoCopySilent'.
+sendvNoCopySilent :: Connection -> [CStringLen] -> WordPtr -> IO ()
+sendvNoCopySilent conn cmsgs pctx = 
+    sendv' conn cmsgs (Prelude.length cmsgs) pctx (#{const CCI_FLAG_NO_COPY} .|. #{const CCI_FLAG_SILENT})
+
+sendv' :: Connection -> [CStringLen] -> Int -> WordPtr -> CInt -> IO ()
+sendv' (Connection pconn) cmsgs clen pctx flags = 
+     allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
+          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
+          cci_sendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) flags
+             >>= cci_check_exception
+
+unsafeUseAsCStringLens :: [ByteString] -> [CStringLen] -> Int -> ([CStringLen] -> Int -> IO a) -> IO a
+unsafeUseAsCStringLens (x:xs) acc len f
+        | seq len True = unsafeUseAsCStringLen x$ \cx -> unsafeUseAsCStringLens xs (cx:acc) (len+1) f
+unsafeUseAsCStringLens _ acc len f = f acc len
+
+write_iovec :: Ptr a -> Int -> CStringLen -> IO ()
+write_iovec piovecs offs (cmsg,clen) = do
+    let p = plusPtr piovecs (offs * #{size struct iovec})
+    #{poke struct iovec, iov_base} p cmsg
+    #{poke struct iovec, iov_len} p clen
 
 
 foreign import ccall unsafe cci_sendv :: Ptr ConnectionV -> Ptr () -> Word32 -> Ptr () -> CInt -> IO CInt
@@ -746,27 +785,6 @@ foreign import ccall safe "cci_sendv" safe_cci_sendv :: Ptr ConnectionV -> Ptr (
 
 enumFlags :: (Enum a, Num b) => [a] -> b
 enumFlags = fromIntegral . foldl (\f-> (f.|.) . fromEnum) (0::Int)
-
-
--- | Flags for 'send' and 'sendv'. See 'send' for details.
-data SEND_FLAG =
-    SEND_BLOCKING 
-  | SEND_NO_COPY  
-  | SEND_SILENT 
- deriving (Eq, Show)
-
-instance Enum SEND_FLAG where
-
-  fromEnum SEND_BLOCKING = #const CCI_FLAG_BLOCKING
-  fromEnum SEND_NO_COPY = #const CCI_FLAG_NO_COPY
-  fromEnum SEND_SILENT = #const CCI_FLAG_SILENT
-
-  toEnum #{const CCI_FLAG_BLOCKING} = SEND_BLOCKING
-  toEnum #{const CCI_FLAG_NO_COPY} = SEND_NO_COPY
-  toEnum #{const CCI_FLAG_SILENT} = SEND_SILENT
-  toEnum i = error$ "SEND_FLAG toEnum: unknown value: "++show i
-
-
 
 
 ---------

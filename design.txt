@@ -92,22 +92,19 @@ instance). More efficient solutions are possible though not as convenient.
 
 The call "send" can be used to deliver a ByteString through a connection. The
 ByteString length is limited by the maximum send size allowed by the 
-connection. Depending on the flags provided we make either a safe or unsafe 
-foreign call to cci_send. When cci_send is instructed to block until the
-send operation completes, we use a safe foreign call so the rest of the Haskell
-runtime threads can continue execution.
+connection. 
 
-Currently, one rough corner is the case when zero copy and non-blocking
-behavior is requested. In such case the ByteString message needs to be pinned
-and kept alive until the send completes. We could perhaps expose a lower 
-level function which would take a pointer directly, instead of
-having it wrapped in a ByteString:
- * cases only silent, only blocking, or none, could be handled with the current
-   send call
- * cases only zero or "zero and silent" could be handled with the lower level
-   send call
-This could make a the API requirements more evident. A similar split would be
-necessary for the call "sendv". 
+The C API provides a call cci_send which takes flags BLOCKING, SILENT and
+NO_COPY. Some of these flags can appear together but not all combinations make
+sense. Also, the semantics of cci_send change so much with the variations that
+we have decided to put them in separate calls. Some of these calls take the
+message in the form of a ByteString, and other calls take a CStringLen. The
+CStringLen form is used when using the flag NO_COPY with cci_send, which
+demands the message buffer to be kept alive until the send completion arrives.
+
+Most send calls use an unsafe foreign call, except those intended to block,
+which use a safe foreign call so the rest of the Haskell runtime threads can
+continue execution.
 
 RMA operations are done with the calls "rmaRead" and "rmaWrite". Unlike in the
 C API, we use different types for local and remote rma handles. These handles
@@ -117,9 +114,8 @@ RMA handles are deregistered with the call rmaDeregister, and there is a call
 withRMALocalHandle that ensures the handle is deregistered.
 
 The buffers for RMA operations are not wrapped in bytestrings in the call
-rmaRegister. This is to hint more explicitly that they are not supposed to be
-under control of the garbage collector, otherwise the buffer may be freed or 
-relocated in the middle of an rma transfer.
+rmaRegister. This is to hint more explicitly that they are expected to remain
+valid until deregistered.
 
 == Events ==
 

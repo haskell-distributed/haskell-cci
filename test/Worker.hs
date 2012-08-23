@@ -101,7 +101,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 
            Send i ctx bs -> do
                c <- getConn' i rcm
-               send c (B8.pack$ msgToString bs) ctx []
+               send c (B8.pack$ msgToString bs) ctx
                sendResponse Idle >> go
 
            WaitConnection cid -> do
@@ -127,7 +127,7 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
            RMAHandleExchange cid -> do
                         h <- createRMALocalHandle ep cid rmar
                         c <- getConn' cid rcm
-                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) 0 []
+                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) 0
                         sendResponse Idle
                         go
 

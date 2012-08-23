@@ -25,7 +25,7 @@ main =
 
            EvRecv ebs conn -> flip finally (disconnect conn)$
              do unsafePackEventBytes ebs >>= B.putStrLn
-                send conn (B.pack "pong!") 1 []
+                send conn (B.pack "pong!") 1
 
            _ -> print evd
       

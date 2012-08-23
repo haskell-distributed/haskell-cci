@@ -26,7 +26,7 @@ main = do
 
            EvConnect ctx (Right conn) ->
              do print ctx
-                send conn (pack "ping!") 1 []
+                send conn (pack "ping!") 1
                 return True
 
            EvRecv ebs conn -> flip finally (disconnect conn)$
