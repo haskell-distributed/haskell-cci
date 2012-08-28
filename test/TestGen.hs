@@ -368,15 +368,14 @@ generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 -- | Takes two processes identifiers and generates an interaction between them.
 --
 -- Right now the interactions consist on stablishing an initial connection and 
--- then having the first process send messages to the second one.
+-- then having the processes send messages to each other.
 --
--- RMA reads and writes might be performed as well.
 genInteraction :: TestConfig -> Int -> Int -> CommandGen Interaction 
 genInteraction c p0 p1 = do
     i <- generateInteractionId
     mt <- getRandomTimeout
     cid <- generateConnectionId
-    sends <- genSends [] cid p0 p1 1 1
+    sends <- genSends [] [] cid p0 p1 1
     cmds <- if testRMA c then do
                  rmaOps <- genRMAInteraction cid p0 p1
                  mergeI sends rmaOps
@@ -390,23 +389,22 @@ genInteraction c p0 p1 = do
         if b then return Nothing
           else return Nothing -- fmap (Just . (+6*1000000))$ getRandom
 
-    genSends :: [ProcCommand] -> WordPtr -> Int -> Int -> Int -> Int -> CommandGen [ProcCommand]
-    genSends waits cid p0 _p1 w0 mid | mid-1 >= nSends c = return$ 
-               [ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ]
-               ++ reverse waits
+    genSends :: [ProcCommand] -> [ProcCommand] -> WordPtr -> Int -> Int -> Int -> CommandGen [ProcCommand]
+    genSends waits0 waits _cid _p0 _p1 mid | mid-1 >= nSends c = return$ reverse waits0 ++ reverse waits
                
-    genSends waits cid p0 p1 w0 mid = do
+    genSends waits0 waits1 cid p0 p1 mid = do
         insertWaits0 <- getRandom 
         insertWaits1 <- getRandom 
         msgLen <- getRandomR (nMinMsgLen c,nMaxMsgLen c) 
+        direction <- getRandom
+        let (p0',p1') = if direction then (p0,p1) else (p1,p0)
 
-        let (waits0,w0') = if insertWaits0 
-                             then ([ ([p0],WaitSendCompletion cid (fromIntegral sid)) | sid <- [w0..mid-1] ], mid) 
-                             else ([],w0)
-            waits' = ([p1],WaitRecv cid (fromIntegral mid)) : if insertWaits1 then [] else waits
-            waits1 = if insertWaits1 then reverse waits else []
-        rest <- genSends waits' cid p0 p1 w0' (mid+1)
-        return$ waits0 ++ waits1 ++ ([p0],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
+            waits0' = ([p0'],WaitSendCompletion cid (fromIntegral mid)) : if insertWaits0 then [] else waits0
+            waits1' = ([p1'],WaitRecv cid (fromIntegral mid)) : if insertWaits1 then [] else waits1
+            waits0'' = if insertWaits0 then reverse waits0 else []
+            waits1'' = if insertWaits1 then reverse waits1 else []
+        rest <- genSends waits0' waits1' cid p0' p1' (mid+1)
+        return$ waits0'' ++ waits1'' ++ ([p0'],Send cid (fromIntegral mid) (Msg (fromIntegral mid) msgLen)) : rest
 
     genRMAInteraction :: WordPtr -> Int -> Int -> CommandGen [ProcCommand]
     genRMAInteraction cid p0 p1 = do
@@ -427,15 +425,17 @@ genInteraction c p0 p1 = do
     genRMAMsgs waits cid p0 p1 mid = do
         genWrite <- getRandom
         insertWaits <- return True -- getRandom 
+        direction <- getRandom
+        let (p0',p1') = if direction then (p0,p1) else (p1,p0)
 
-        let waits' = ([p0,p1],(if genWrite then RMAWaitWrite
+            waits' = ([p0',p1'],(if genWrite then RMAWaitWrite
                                  else RMAWaitRead) cid (fromIntegral mid))
                        : if insertWaits then [] else waits
             waits1 = if insertWaits then reverse waits else []
-        rest <- genRMAMsgs waits' cid p0 p1 (mid+1)
+        rest <- genRMAMsgs waits' cid p0' p1' (mid+1)
         let sendCmd = if genWrite then RMAWrite else RMARead
-            prepareRead = if genWrite then [] else [([p1],RMAPrepareRead cid (fromIntegral mid))]
-        return$ waits1 ++ prepareRead ++ ([p0],sendCmd cid (fromIntegral mid)) : rest
+            prepareRead = if genWrite then [] else [([p1'],RMAPrepareRead cid (fromIntegral mid))]
+        return$ waits1 ++ prepareRead ++ ([p0'],sendCmd cid (fromIntegral mid)) : rest
 
 
 -- | A monad for processes. It carries along a state with the file handles
