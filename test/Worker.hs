@@ -124,10 +124,11 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
                         sendResponse Idle
                         go
 
-           RMAHandleExchange cid -> do
+           RMAHandleExchange cid sid -> do
                         h <- createRMALocalHandle ep cid rmar
                         c <- getConn' cid rcm
-                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) 0
+                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) sid
+                        insertRMAHandleSendId cid sid rmar
                         sendResponse Idle
                         go
 
@@ -211,7 +212,9 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
 
     waitRMAExchange rmar rcm rcrs ep cid = do
             mr <- getRMARemoteHandle cid rmar
-            when (isNothing mr)$ do
+            Just si <- getRMAHandleSendId cid rmar 
+            ci <- getConnInfo' cid rcm
+            when (isNothing mr || (not$ IS.member (fromIntegral si)$ sendCompletions ci))$ do
                     pollWithEventData ep$ handleEvent rmar rcm rcrs
                     waitRMAExchange rmar rcm rcrs ep cid
 
@@ -380,6 +383,7 @@ data RMAState = RMAState
     , reservedLocalHandles :: Map WordPtr (RMALocalHandle,Ptr CChar,Int)
     , availableHandles :: [(RMALocalHandle,Ptr CChar,Int)]
     , remoteHandles :: Map WordPtr RMARemoteHandle
+    , localHandlesSendIds :: Map WordPtr WordPtr
     , rmaWritesIds :: IS.IntSet
     }
 
@@ -388,6 +392,7 @@ emptyRMAState = newIORef RMAState
     { reused        = S.empty
     , availableHandles  = []
     , remoteHandles = M.empty
+    , localHandlesSendIds = M.empty
     , reservedLocalHandles = M.empty
     , rmaWritesIds = IS.empty 
     }
@@ -426,6 +431,9 @@ insertRMARemoteHandle cid rh rmar = do
 getRMARemoteHandle :: WordPtr -> IORef RMAState -> IO (Maybe RMARemoteHandle)
 getRMARemoteHandle cid rmar = readIORef rmar >>= return . M.lookup cid . remoteHandles
   
+getRMAHandleSendId :: WordPtr -> IORef RMAState -> IO (Maybe WordPtr)
+getRMAHandleSendId cid rmar = readIORef rmar >>= return . M.lookup cid . localHandlesSendIds
+  
 getRMALocalHandle :: WordPtr -> IORef RMAState -> IO (RMALocalHandle,Ptr CChar,Int)
 getRMALocalHandle cid rmar = readIORef rmar >>= return . maybe (error "getRMALocalHandle") id . M.lookup cid . reservedLocalHandles
   
@@ -438,6 +446,9 @@ freeRMALocalHandle cid rmar = atomicModifyIORef rmar$ \rmas ->
                } 
         , ()
         )
+
+insertRMAHandleSendId :: WordPtr -> WordPtr -> IORef RMAState -> IO ()
+insertRMAHandleSendId cid sid rmar = atomicModifyIORef rmar (\rmas -> (rmas { localHandlesSendIds = M.insert cid sid (localHandlesSendIds rmas) }, ()))
 
 insertRMAWriteId :: WordPtr -> IORef RMAState -> IO ()
 insertRMAWriteId cid rmar = atomicModifyIORef rmar (\rmas -> (rmas { rmaWritesIds = IS.insert (fromIntegral cid) (rmaWritesIds rmas) }, ()))

@@ -156,20 +156,26 @@ handle exchange is ever requested. This operation completes immediately.
 If no previously allocated buffer exist a new buffer is created when
 the RMA handle exchange is requested.
 
-* RMAHandleExchange connection_id
+* RMAHandleExchange connection_id send_id
 
 Instructs a process to exchange RMA handles with another process through
 the connection bound to the identifier connection_id. The process either
 allocates and registers a new buffer or recycles an existing one. The
 choice depends on whether a RMAReuseRMAHandle command was previously
 issued. This command completes when the call to cci_send for sending the
-local RMA handle returns.
+local RMA handle returns. 
+
+The send_id should be used as the context argument of cci_send. It is
+guaranteed to don't clash with the contexts of other messages in the
+connection.
 
 * RMAWaitExchange connection_id
 
 Instructs a process to wait for the RMA remote handle on the connection
-bound to identifier connection_id. This command completes when a 
-CCI_EVENT_RECV event with the remote handle is yielded by cci_get_event.
+bound to identifier connection_id. This command completes when both a 
+CCI_EVENT_RECV event with the remote handle is yielded by cci_get_event
+and when the CCI_EVENT_SEND event with the send_id provided by
+RMAHandleExchange is yielded as well.
 
 This operation requires cooperation from the other process in order to
 complete. The other process needs to be polling with cci_get_event.
@@ -307,8 +313,6 @@ single pair of processes.
 
 
 == TODO ==
-
-Fix possible locking in RMAWaitHandleExchange.
 
 Change the representation of traces to enable delivering different commands to
 different processes simultaneously.

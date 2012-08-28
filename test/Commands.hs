@@ -28,8 +28,8 @@ data Command =
 
     | RMAReuseRMAHandle WordPtr                   -- ^ @RMAReuseRMAHandle conn_id@ marks the connection @conn_id@ to
                                                   -- reuse a previous rma handle instead of creating a new one.
-    | RMAHandleExchange WordPtr                   -- ^ @RMAHandleExchange conn_id@ exchanges rma handles with the
-                                                  -- given process through the driver.
+    | RMAHandleExchange WordPtr WordPtr           -- ^ @RMAHandleExchange conn_id send_id@ exchanges rma handles through the given connection.
+                                                  -- The @send_id@ is used to wait for the send completion that acknowledges handle reception.
     | RMAWaitExchange WordPtr                     -- ^ Wait for an rma exchange to complete on the given connection.
     | RMAWrite WordPtr WordPtr                    -- ^ @RMAWrite conn_id msg_id@ 
 	| RMAPrepareRead WordPtr WordPtr              -- ^ @RMAPrepareRead conn_id msg_id@ writes the rma buffer with predefined data for an rma operation.

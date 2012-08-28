@@ -89,6 +89,27 @@ void free_int_rh_list_t_node(int_rh_list_t* n) { free(n); }
 SGLIB_DEFINE_LIST_PROTOTYPES(int_rh_list_t, INT_RH_LIST_COMPARATOR, next);
 SGLIB_DEFINE_LIST_FUNCTIONS(int_rh_list_t, INT_RH_LIST_COMPARATOR, next);
 
+typedef struct _int_int_list {
+    int k;
+    int sid;
+    struct _int_int_list* next;
+} int_int_list_t;
+
+int_int_list_t* mk_int_int_list_t_node(int k,int sid) {
+    int_int_list_t* n=malloc(sizeof(int_rh_list_t));
+    n->k = k;
+    n->sid = sid;
+    n->next = NULL;
+    return n;
+}
+
+void free_int_int_list_t_node(int_int_list_t* n) { free(n); }
+
+#define INT_INT_LIST_COMPARATOR(e1, e2) (e1->k - e2->k)
+
+SGLIB_DEFINE_LIST_PROTOTYPES(int_int_list_t, INT_INT_LIST_COMPARATOR, next);
+SGLIB_DEFINE_LIST_FUNCTIONS(int_int_list_t, INT_INT_LIST_COMPARATOR, next);
+
 
 
 struct Proc {
@@ -106,6 +127,7 @@ struct Proc {
     int_lh_list_t* reservedLocalHandles;
     int_lh_list_t* availableHandles;
     int_rh_list_t* remoteHandles;
+    int_int_list_t* localHandlesSendIds;
     int_list_t* rmaWriteIds[100];
     int_list_t* rmaReadIds[100];
 };
@@ -357,7 +379,7 @@ void rma_free_handle(proc_t* p,int cid)
     write_msg(p,"");
 }
 
-void rma_handle_exchange(proc_t* p,int cid) 
+void rma_handle_exchange(proc_t* p,int cid,int sid) 
 {
     char buf[100];
     read_msg(p,buf);
@@ -386,8 +408,7 @@ void rma_handle_exchange(proc_t* p,int cid)
         ret=cci_rma_register(p->endpoint,rma_buf,len,CCI_FLAG_READ | CCI_FLAG_WRITE,&h);
 	    check_return("cci_rma_register", p->endpoint, ret, 1);
 
-        int_lh_list_t* lh = mk_int_lh_list_t_node(cid,h,rma_buf,len);
-        sglib_int_lh_list_t_add(&p->reservedLocalHandles,lh);
+        sglib_int_lh_list_t_add(&p->reservedLocalHandles,mk_int_lh_list_t_node(cid,h,rma_buf,len));
     }
 
     // Send the handle
@@ -400,6 +421,8 @@ void rma_handle_exchange(proc_t* p,int cid)
     ret = cci_send(p->conns[cid],buf,buf_len,NULL,0);
 	check_return("cci_send", p->endpoint, ret, 1);
 
+    sglib_int_int_list_t_add(&p->localHandlesSendIds,mk_int_int_list_t_node(cid,sid));
+
     write_msg(p,"");
 }
 
@@ -409,13 +432,28 @@ void rma_wait_exchange(proc_t* p,int cid)
     read_msg(p,buf);
     cci_event_t *event;
 
-    int_rh_list_t e = { cid, 0, NULL };
-    while(!sglib_int_rh_list_t_find_member(p->remoteHandles,&e)) {
+    int_int_list_t eii = {cid, 0, NULL };
+    int_int_list_t* rii = sglib_int_int_list_t_find_member(p->localHandlesSendIds,&eii);
+    if (!rii) {
+        fprintf(stderr,"Could not find send id for handle exhange: %d", cid);
+        exit(EXIT_FAILURE);
+    }
+
+    int_list_t e = {rii->sid, NULL };
+    int_list_t* d;
+    sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d);
+
+    int_rh_list_t erh = { cid, 0, NULL };
+    while(!sglib_int_rh_list_t_find_member(p->remoteHandles,&erh) || !d) {
 	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
 		}
 		handle_event(p,event);
 		cci_return_event(event);
+        if (!d)
+            sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d);
     }
+    if (d)
+        free_int_list_t_node(d);
         
     write_msg(p,"");
 }
@@ -724,6 +762,7 @@ int spawn(proc_t** p,int cci_pid) {
     (*p)->availableHandles = NULL;
     (*p)->reservedLocalHandles = NULL;
     (*p)->remoteHandles = NULL;
+    (*p)->localHandlesSendIds = NULL;
 	memset((*p)->rmaWriteIds,0,100*sizeof(int_list_t*));
 	memset((*p)->rmaReadIds,0,100*sizeof(int_list_t*));
 

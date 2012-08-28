@@ -170,7 +170,7 @@ generateCTest cmds = let procCmds = groupBy ((==) `on` fst)
     cciStatement (WaitRecv cid rid) = text "" $$ text ("wait_recv(p,"++show cid++","++show rid++");")
     cciStatement (Accept _) = empty
     cciStatement (RMAReuseRMAHandle cid) = text "" $$ text ("rma_reuse(p,"++show cid++");")
-    cciStatement (RMAHandleExchange cid) = text "" $$ text ("rma_handle_exchange(p,"++show cid++");")
+    cciStatement (RMAHandleExchange cid sid) = text "" $$ text ("rma_handle_exchange(p,"++show cid++","++show sid++");")
     cciStatement (RMAFreeHandles cid) = text "" $$ text ("rma_free_handle(p,"++show cid++");")
     cciStatement (RMAWaitExchange cid) = text "" $$ text ("rma_wait_exchange(p,"++show cid++");")
     cciStatement (RMAPrepareRead cid sid) = text "" $$ text ("rma_prepare_read(p,"++show cid++","++show sid++");")
@@ -369,6 +369,8 @@ generateConnectionId = modifyCGS (\g -> (connG g,g { connG = connG g+1}))
 --
 -- Right now the interactions consist on stablishing an initial connection and 
 -- then having the first process send messages to the second one.
+--
+-- RMA reads and writes might be performed as well.
 genInteraction :: TestConfig -> Int -> Int -> CommandGen Interaction 
 genInteraction c p0 p1 = do
     i <- generateInteractionId
@@ -413,8 +415,9 @@ genInteraction c p0 p1 = do
         let maybeReuse = (if b0 then (([p0],RMAReuseRMAHandle cid):) else id) 
                        . (if b1 then (([p1],RMAReuseRMAHandle cid):) else id)
         sends <- genRMAMsgs [] cid p0 p1 (nSends c+1)
-        return$ maybeReuse$ ([p0],RMAHandleExchange cid) 
-                          : ([p1],RMAHandleExchange cid) : ([p0,p1],RMAWaitExchange cid) 
+        let rmaSendId = fromIntegral (3*nSends c)+cid+1
+        return$ maybeReuse$ ([p0],RMAHandleExchange cid rmaSendId) 
+                          : ([p1],RMAHandleExchange cid rmaSendId) : ([p0,p1],RMAWaitExchange cid) 
                           : sends
                           ++ ([p0],RMAFreeHandles cid) : ([p1],RMAFreeHandles cid) : []
 

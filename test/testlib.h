@@ -44,7 +44,7 @@ void finalize(proc_t *p);
 
 
 void rma_reuse(proc_t* p,int cid);
-void rma_handle_exchange(proc_t* p,int cid);
+void rma_handle_exchange(proc_t* p,int cid,int sid);
 void rma_wait_exchange(proc_t* p,int cid);
 void rma_prepare_read(proc_t* p,int cid,int sid);
 void rma_read(proc_t* p,int cid,int sid);
