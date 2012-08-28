@@ -418,7 +418,7 @@ void rma_handle_exchange(proc_t* p,int cid,int sid)
     for(i=0;i<8;i+=1)
         buf[5+i] = (h>>((7-i)*8)) & 0xFF;
     
-    ret = cci_send(p->conns[cid],buf,buf_len,NULL,0);
+    ret = cci_send(p->conns[cid],buf,buf_len,(void*)(intptr_t)sid,0);
 	check_return("cci_send", p->endpoint, ret, 1);
 
     sglib_int_int_list_t_add(&p->localHandlesSendIds,mk_int_int_list_t_node(cid,sid));
