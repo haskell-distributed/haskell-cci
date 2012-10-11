@@ -45,13 +45,13 @@ SGLIB_DEFINE_LIST_FUNCTIONS(int_list_t, INT_LIST_COMPARATOR, next);
 
 typedef struct _int_lh_list {
     int k;
-    uint64_t lh;
+    cci_rma_handle_t* lh;
     void* buf;
     int len;
     struct _int_lh_list* next;
 } int_lh_list_t;
 
-int_lh_list_t* mk_int_lh_list_t_node(int k,uint64_t lh,void* buf,int len) {
+int_lh_list_t* mk_int_lh_list_t_node(int k,cci_rma_handle_t* lh,void* buf,int len) {
     int_lh_list_t* n=malloc(sizeof(int_lh_list_t));
     n->k = k;
     n->lh = lh;
@@ -70,14 +70,14 @@ SGLIB_DEFINE_LIST_FUNCTIONS(int_lh_list_t, INT_LH_LIST_COMPARATOR, next);
 
 typedef struct _int_rh_list {
     int k;
-    uint64_t rh;
+    cci_rma_handle_t rh;
     struct _int_rh_list* next;
 } int_rh_list_t;
 
-int_rh_list_t* mk_int_rh_list_t_node(int k,uint64_t rh) {
+int_rh_list_t* mk_int_rh_list_t_node(int k,cci_rma_handle_t rh) {
     int_rh_list_t* n=malloc(sizeof(int_rh_list_t));
     n->k = k;
-    n->rh = rh;
+    memcpy((void*)&n->rh, &rh, sizeof(rh));
     n->next = NULL;
     return n;
 }
@@ -210,18 +210,14 @@ void get_msg_id(const char* ptr,uint32_t len,char* res) {
     res[i]='\0';
 }
 
-uint64_t get_msg_remote_handle(const char* ptr) {
-    uint64_t rh = 0;
-    int i;
-    for(i=0;i<8;i+=1)
-        rh = (rh<<8) + (uint64_t)(unsigned char)ptr[5+i];
-    return rh;
+void get_msg_remote_handle(const char* ptr,cci_rma_handle_t* rh) {
+	memcpy((void*)rh, ptr, sizeof(*rh));
 }
 
 MessageType get_message_type(int pid,int cid,const char* ptr,uint32_t len) {
     if (len>=5 && strncmp(ptr,"rmaH ",5)==0) {
-        if (len!=13) {
-	        fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): get_message_type() failed: rmaH message has not length 13: %d\n",pid,cid,len);
+        if (len!=5+sizeof(cci_rma_handle_t)) {
+	        fprintf(stderr, "process %d: CCI_EVENT_RECV (conn=%d): get_message_type() failed: rmaH message has not length %d: %d\n",pid,cid,5+sizeof(cci_rma_handle_t),len);
             exit(EXIT_FAILURE);
         } else
             return MSG_RMA_HANDLE;
@@ -297,13 +293,14 @@ void handle_event(proc_t* p,cci_event_t* event) {
        case CCI_EVENT_RECV:
            switch(get_message_type(pid,(intptr_t)event->recv.connection->context
                                   ,(const char*)event->recv.ptr,event->recv.len)) {
-            case MSG_RMA_HANDLE:
-                fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_handle=%ld)\n"
+            case MSG_RMA_HANDLE: {
+                cci_rma_handle_t h;
+                get_msg_remote_handle((const char*)event->recv.ptr,&h);
+                fprintf(stderr,"process %d: CCI_EVENT_RECV (conn=%d,rma_handle=%ld,%ld,%ld,%ld)\n"
                        ,pid,event->recv.connection->context
-                       ,get_msg_remote_handle((const char*)event->recv.ptr));
-                sglib_int_rh_list_t_add(&p->remoteHandles,
-                    mk_int_rh_list_t_node((int64_t)event->recv.connection->context
-                        ,get_msg_remote_handle((const char*)event->recv.ptr)));
+                       ,h.stuff[0],h.stuff[1],h.stuff[2],h.stuff[3]);
+                sglib_int_rh_list_t_add(&p->remoteHandles, mk_int_rh_list_t_node((int64_t)event->recv.connection->context,h));
+                }
                 break;
             case MSG_RMA_WRITE: {
                 int cid = (int64_t)event->recv.connection->context;
@@ -385,7 +382,7 @@ void rma_handle_exchange(proc_t* p,int cid,int sid)
     read_msg(p,buf);
 
     // Create a local handle
-    uint64_t h;
+    cci_rma_handle_t* h;
     int ret;
     int_list_t e = { cid, NULL };
     int_list_t* d;
@@ -412,11 +409,9 @@ void rma_handle_exchange(proc_t* p,int cid,int sid)
     }
 
     // Send the handle
-    const int buf_len=13;
+    const int buf_len=5+sizeof(*h);
     strcpy(buf,"rmaH ");
-    int i;
-    for(i=0;i<8;i+=1)
-        buf[5+i] = (h>>((7-i)*8)) & 0xFF;
+    memcpy(buf+5,h,sizeof(*h));
     
     ret = cci_send(p->conns[cid],buf,buf_len,(void*)(intptr_t)sid,0);
 	check_return("cci_send", p->endpoint, ret, 1);
@@ -443,7 +438,7 @@ void rma_wait_exchange(proc_t* p,int cid)
     int_list_t* d;
     sglib_int_list_t_delete_if_member(&p->sends[cid],&e,&d);
 
-    int_rh_list_t erh = { cid, 0, NULL };
+    int_rh_list_t erh = { cid, { {0,0,0,0} }, NULL };
     while(!sglib_int_rh_list_t_find_member(p->remoteHandles,&erh) || !d) {
 	    while(CCI_SUCCESS != cci_get_event(p->endpoint, &event)) {
 		}
@@ -488,13 +483,13 @@ void rma_read(proc_t* p,int cid,int sid)
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
     int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
 
-    int_rh_list_t kr = {cid, 0, NULL};
+    int_rh_list_t kr = {cid, { {0,0,0,0} }, NULL};
     int_rh_list_t* rh = sglib_int_rh_list_t_find_member(p->remoteHandles,&kr);
 
     sglib_int_list_t_add(&p->rmaReadIds[cid],mk_int_list_t_node(sid));
 
     int len = sprintf(buf,"rmaRead %d",sid);
-    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_READ);
+    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,&rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_READ);
     check_return("cci_rma",p->endpoint,ret,1);
     free(buf);
 
@@ -533,13 +528,13 @@ void rma_write(proc_t* p,int cid,int sid)
     int_lh_list_t k = {cid, 0, NULL, 0, NULL};
     int_lh_list_t* lh = sglib_int_lh_list_t_find_member(p->reservedLocalHandles,&k);
 
-    int_rh_list_t kr = {cid, 0, NULL};
+    int_rh_list_t kr = {cid, { { 0,0,0,0 } }, NULL};
     int_rh_list_t* rh = sglib_int_rh_list_t_find_member(p->remoteHandles,&kr);
 
     prepare_rma_buffer(lh->buf,lh->len,sid);
 
     int len = sprintf(buf,"rmaWrite %d",sid);
-    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_WRITE);
+    int ret = cci_rma(p->conns[cid],buf,len,lh->lh,0,&rh->rh,0,lh->len,(void*)(intptr_t)sid,CCI_FLAG_WRITE);
     check_return("cci_rma",p->endpoint,ret,1);
     free(buf);
 

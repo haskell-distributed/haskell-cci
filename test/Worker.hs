@@ -127,7 +127,8 @@ main = flip catch (\e -> sendResponse$ Error$ "Exception: "++show (e :: SomeExce
            RMAHandleExchange cid sid -> do
                         h <- createRMALocalHandle ep cid rmar
                         c <- getConn' cid rcm
-                        send c (B8.pack$ msgToString$ MsgRMAH$ rmaHandle2ByteString h) sid
+                        bh <- rmaHandle2ByteString h
+                        send c (B8.pack$ msgToString$ MsgRMAH$ bh) sid
                         insertRMAHandleSendId cid sid rmar
                         sendResponse Idle
                         go
@@ -278,7 +279,7 @@ byteStringToMsg bs = let (ctxs,rest) = B8.break isSpace bs
                                   _          -> Msg (read$ B8.unpack ctxs) (B.length bs)
                            else error$ "error parsing message "++show ctxs++" (length: "++show (B.length bs)++"): "++show rest
   where
-    wellFormed "rmaH" (' ':rs) = length rs==8
+    wellFormed "rmaH" (' ':rs) = length rs==32
     wellFormed "rmaRead" (' ':rs) = all isDigit rs
     wellFormed "rmaWrite" (' ':rs) = all isDigit rs
     wellFormed ctx (' ':rs) | all isDigit ctx = and$ zipWith (==) (cycle ctx) rs

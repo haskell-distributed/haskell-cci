@@ -381,7 +381,7 @@ genInteraction c p0 p1 = do
                  mergeI sends rmaOps
              else return sends
     return$ (i,([p1],Accept cid)):
-       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : cmds ++ [ ([p0],Disconnect cid) ]
+       (zip (repeat i) ( ([p0],ConnectTo "" p1 cid mt) : ([p0,p1],WaitConnection cid) : cmds ++ [ ([p0,p1],Disconnect cid) ]
                          )) -- ++ [([p0],WaitEvents (nSends c+1)),([p1],WaitEvents (nSends c+2))] ))
   where
     getRandomTimeout = do

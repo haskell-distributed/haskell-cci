@@ -49,4 +49,16 @@
   ...
   fun:cci_*
 }
+{
+  <insert_a_suppression_name_here>
+  Memcheck:Value8
+  ...
+  fun:GarbageCollect
+}
+{
+  <insert_a_suppression_name_here>
+  Memcheck:Cond
+  ...
+  fun:GarbageCollect
+}
 

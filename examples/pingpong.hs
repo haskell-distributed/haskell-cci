@@ -91,7 +91,8 @@ goServer ep _o = do
       RMA sz -> do 
         allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->
           withRMALocalHandle ep (cbuf,fromIntegral sz) RMA_READ_WRITE$ \lh -> do
-            send conn (rmaHandle2ByteString lh) 0
+            bh <- rmaHandle2ByteString lh
+            send conn bh 0
             goServer' sz
   where
     goServer' sz = allocaBytesAligned (fromIntegral sz) 4096 $ \cbuf ->

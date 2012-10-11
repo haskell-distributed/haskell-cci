@@ -113,11 +113,11 @@ module Network.CCI
 import Control.Concurrent     ( threadWaitRead )
 import Control.Exception      ( Exception, throwIO, bracket, bracket_, onException, mask_ )
 import Control.Monad          ( liftM2, liftM3, join )
-import Data.Bits              ( (.|.), shiftR, shiftL, (.&.) )
-import Data.ByteString as B   ( ByteString, packCStringLen, unpack, pack, length )
-import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen )
+import Data.Bits              ( (.|.) )
+import Data.ByteString as B   ( ByteString, packCStringLen, length )
+import Data.ByteString.Unsafe ( unsafePackCStringLen, unsafeUseAsCStringLen, unsafeUseAsCString )
 import Data.Dynamic           ( Typeable )
-import Data.Word              ( Word8, Word32, Word64 )
+import Data.Word              ( Word32, Word64 )
 import Foreign.C.Types        ( CInt(..), CChar )
 import Foreign.C.String       ( CString, peekCString, CStringLen, withCString )
 import Foreign.Ptr            ( Ptr, nullPtr, WordPtr, wordPtrToPtr, plusPtr, ptrToWordPtr, castPtr )
@@ -822,10 +822,10 @@ enumFlags = fromIntegral . foldl (\f-> (f.|.) . fromEnum) (0::Int)
 rmaRegister :: Endpoint -> CStringLen -> RMA_MODE -> IO RMALocalHandle
 rmaRegister (Endpoint pend) (cbuf,clen) m = alloca$ \p ->
     cci_rma_register pend cbuf (fromIntegral clen) (fromIntegral (fromEnum m)) p
-      >>= cci_check_exception >> peek p
+      >>= cci_check_exception >> fmap RMALocalHandle (peek p)
 
 foreign import ccall unsafe cci_rma_register :: Ptr EndpointV 
-                                             -> Ptr CChar -> Word64 -> CInt -> Ptr RMALocalHandle -> IO CInt
+                                             -> Ptr CChar -> Word64 -> CInt -> Ptr (Ptr CChar) -> IO CInt
 
 -- | Mode for registered handles.
 data RMA_MODE =
@@ -856,9 +856,9 @@ instance Enum RMA_MODE where
 -- May throw driver-specific errors.
 --
 rmaDeregister :: Endpoint -> RMALocalHandle -> IO ()
-rmaDeregister (Endpoint ep) (RMALocalHandle w64) = cci_rma_deregister ep w64 >>= cci_check_exception
+rmaDeregister (Endpoint ep) (RMALocalHandle p) = cci_rma_deregister ep p >>= cci_check_exception
 
-foreign import ccall unsafe cci_rma_deregister :: Ptr EndpointV -> Word64 -> IO CInt
+foreign import ccall unsafe cci_rma_deregister :: Ptr EndpointV -> Ptr CChar -> IO CInt
 
 
 -- | Wraps an IO operation with calls to 'rmaRegister' and 'rmaDeregister'.
@@ -918,16 +918,17 @@ rmaRead :: Connection          -- ^ Connection used for the RMA transfer.
         -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
         -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
         -> IO ()
-rmaRead (Connection pconn) mb (RMALocalHandle lh) lo (RMARemoteHandle rh) ro dlen pctx flags = 
-  let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
-                               (wordPtrToPtr pctx) (#{const CCI_FLAG_READ} .|. enumFlags flags) 
-                           >>= cci_check_exception
-   in case mb of
-       Just b -> unsafeUseAsCStringLen b$ crma
-       Nothing -> crma (nullPtr,0::Int)
+rmaRead (Connection pconn) mb (RMALocalHandle lhp) lo (RMARemoteHandle rh) ro dlen pctx flags = 
+  unsafeUseAsCString rh$ \rhp ->
+   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen 
+                                (wordPtrToPtr pctx) (#{const CCI_FLAG_READ} .|. enumFlags flags) 
+                            >>= cci_check_exception
+    in case mb of
+        Just b -> unsafeUseAsCStringLen b$ crma
+        Nothing -> crma (nullPtr,0::Int)
 
 foreign import ccall unsafe cci_rma :: Ptr ConnectionV -> Ptr CChar -> Word32 
-                                    -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 
+                                    -> Ptr CChar -> Word64 -> Ptr CChar -> Word64 -> Word64 
                                     -> Ptr () -> CInt -> IO CInt
 
 
@@ -945,13 +946,14 @@ rmaWrite :: Connection          -- ^ Connection used for the RMA transfer.
          -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
          -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
          -> IO ()
-rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lh) lo dlen pctx flags = 
-  let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lh lo rh ro dlen 
-                               (wordPtrToPtr pctx) (#{const CCI_FLAG_WRITE} .|. enumFlags flags) 
-                           >>= cci_check_exception
-   in case mb of
-       Just b -> unsafeUseAsCStringLen b$ crma
-       Nothing -> crma (nullPtr,0::Int)
+rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lhp) lo dlen pctx flags = 
+  unsafeUseAsCString rh$ \rhp ->
+   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen 
+                                (wordPtrToPtr pctx) (#{const CCI_FLAG_WRITE} .|. enumFlags flags) 
+                            >>= cci_check_exception
+    in case mb of
+        Just b -> unsafeUseAsCStringLen b$ crma
+        Nothing -> crma (nullPtr,0::Int)
 
 
 -- | Flags for 'rmaRead' and 'rmaWrite'.
@@ -980,29 +982,25 @@ instance Enum RMA_FLAG where
 -- | RMA local handles have an associated buffer in local memory
 -- which is read or written during RMA operations.
 --
-newtype RMALocalHandle = RMALocalHandle Word64
-  deriving (Storable, Eq)
+newtype RMALocalHandle = RMALocalHandle (Ptr CChar)
+  deriving Eq
 
 -- | RMA remote handles have an associated buffer in a remote location
 -- which is read or written during RMA operations.
 --
-newtype RMARemoteHandle = RMARemoteHandle Word64
+newtype RMARemoteHandle = RMARemoteHandle ByteString
 
 
 -- | Gets a ByteString representation of the handle which can be sent to a peer.
-rmaHandle2ByteString :: RMALocalHandle -> ByteString
-rmaHandle2ByteString (RMALocalHandle w64) = pack [ fromIntegral ((w64 `shiftR` i) .&. 255)  | i<-[56,48..0] ]
+rmaHandle2ByteString :: RMALocalHandle -> IO ByteString
+rmaHandle2ByteString (RMALocalHandle p) = packCStringLen (p,32)
 
 -- | Creates a remote handle from a ByteString representation of a remote
 -- handle. It is the inverse 'rmaHandle2ByteString'.
 createRMARemoteHandle :: ByteString -> Maybe RMARemoteHandle
 createRMARemoteHandle b = case B.length b of
-                            8 -> Just$ RMARemoteHandle$ toWord64$ unpack b
-                            _ -> Nothing
-  where 
-    toWord64 :: [Word8] -> Word64
-    toWord64 = foldl (\w64 w8 -> (w64 `shiftL` 8) .|. fromIntegral w8) 0
-
+                            32 -> Just$ RMARemoteHandle b
+                            _  -> Nothing
 
 
 ------------------------------------------
