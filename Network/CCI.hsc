@@ -16,8 +16,6 @@
 
 -- | Haskell bindings for CCI. 
 --
--- Copyright 2006 Parallel Scientific.
---
 -- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> .
 -- Most of the comments in this module has been taken and reedited from there.
 --
