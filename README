@@ -52,3 +52,7 @@ LD_LIBRARY_PATH=/path/to/cci/lib dist/build/test-cci/test-cci
 
 See test/README for details.
 
+== Design notes ==
+
+See design.txt.
+
