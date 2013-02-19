@@ -86,8 +86,13 @@ collectSends = map toPair'
 
 attachProcDestination :: [ProcCommand] -> [(Maybe Int,ProcCommand)]
 attachProcDestination = go M.empty
-  where go m (c@(_,ConnectTo _ pid cid _):cms) = (Nothing,c) : go (M.insert cid pid m) cms
-        go m (c@(_,Send cid _ _):cms) = (M.lookup cid m,c) : go m cms
+  where go m (c@(tprocs,ConnectTo _ pid cid _):cms) =
+            (Nothing,c) : go (M.insert cid (pid,tprocs) m) cms
+        go m (c@(tprocs,Send cid _ _):cms) =
+            ( fmap (\(pid,tps) -> if elem pid tprocs then head tps else pid)
+                   $ M.lookup cid m
+            , c
+            ) : go m cms
         go m (c:cms) = (Nothing,c) : go m cms
         go _ [] = []
 
