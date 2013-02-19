@@ -16,7 +16,8 @@ cabal configure -f "examples tests"
 cabal build
 
 # If CCI is not in a standard folder:
-cabal configure -f "examples tests" --extra-lib-dirs=/path/to/cci/lib/folder
+cabal configure -f "examples tests" --extra-lib-dirs=/path/to/cci/lib/folder \
+                               --extra-include-dirs=/path/to/cci/include/folder
 cabal build
 
 # Then programs can be run with
@@ -24,9 +25,6 @@ LD_LIBRARY_PATH=/path/to/cci/lib/folder some_program
 
 
 # to generate documentation
-cabal configure # remove the flags -f "tests examples" to avoid the error
-                # "cabal: Can't find transitive deps for haddock"
-                # which would otherwise happen when running "cabal haddock".
 cabal haddock
 
 

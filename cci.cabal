@@ -37,57 +37,12 @@ Library
   exposed-modules:     Network.CCI
   other-modules:       
 
-  build-depends:       base >= 4.3 && < 5
+  build-depends:       base >= 4.3
                        , bytestring
                        
   ghc-options:      -O -Wall
 
-  if flag(static-verbs) || flag (static-sock)
-    c-sources:
-                    cci/src/plugins/base/init.c
-                    cci/src/plugins/base/open.c
-                    cci/src/plugins/base/close.c
-
-                    cci/src/plugins/ctp/base/verify.c
-                    cci/src/plugins/ctp/base/close.c
-
-                    cci/src/api/arm_os_handle.c
-                    cci/src/api/rma_register.c
-                    cci/src/api/init.c
-                    cci/src/api/finalize.c
-                    cci/src/api/send.c
-                    cci/src/api/create_endpoint.c
-                    cci/src/api/rma.c
-                    cci/src/api/return_event.c
-                    cci/src/api/accept.c
-                    cci/src/api/get_devices.c
-                    cci/src/api/set_opt.c
-                    cci/src/api/strerror.c
-                    cci/src/api/connect.c
-                    cci/src/api/get_opt.c
-                    cci/src/api/sendv.c
-                    cci/src/api/get_event.c
-                    cci/src/api/reject.c
-                    cci/src/api/destroy_endpoint.c
-                    cci/src/api/disconnect.c
-                    cci/src/api/rma_deregister.c
-
-                    cci/src/util/argv.c
-
-  if flag(static-verbs)
-    c-sources:
-                    ctp_base_open_verbs.c
-                    cci/src/plugins/ctp/verbs/ctp_verbs_module.c
-                    cci/src/plugins/ctp/verbs/ctp_verbs_api.c
-
-  else
-   if flag(static-sock)
-    c-sources:
-                    ctp_base_open_sock.c
-                    cci/src/plugins/ctp/sock/ctp_sock_module.c
-                    cci/src/plugins/ctp/sock/ctp_sock_api.c
-   else
-    extra-libraries:  cci
+  extra-libraries:  cci
 
 
 Flag tests
@@ -96,14 +51,6 @@ Flag tests
 
 Flag examples
   Description: Build examples
-  Default: False
-
-Flag static-verbs
-  Description: Builds cci statically and makes it load the verbs driver exclusively.
-  Default: False
-
-Flag static-sock
-  Description: Builds cci statically and makes it load the sock driver exclusively.
   Default: False
 
 Executable ex-client
@@ -135,8 +82,8 @@ Executable test-cci
   hs-source-dirs: test
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
   if flag(tests)
-    build-depends:  base<4.6, bytestring<0.10, cci, containers<0.5, binary<0.6, process<1.2
-                  , filepath<1.4, mtl, random >= 1.0.1.0 && < 1.1, cmdargs<0.11, pretty<1.2
+    build-depends:  base, bytestring, cci, containers, binary, process
+                  , filepath, mtl, random, cmdargs<0.11, pretty
   else
     buildable: False
 
