@@ -303,7 +303,7 @@ getDevices = do
         name <- (#{peek cci_device_t, name} p) >>= peekCString
         transport <- #{peek cci_device_t, transport} p >>= peekCString
         up <- #{peek cci_device_t, up} p
-        info <- #{peek cci_device_t, info} p >>= peekCString
+        info <- #{peek cci_device_t, info} p >>= \x -> if x == nullPtr then return "" else peekCString x
         conf_args <- (#{peek cci_device_t, conf_argv} p) >>= flip peekNullTerminated 0 >>= mapM peekCString
         max_send_size <- #{peek cci_device_t, max_send_size} p
         rate <- #{peek cci_device_t, rate} p
