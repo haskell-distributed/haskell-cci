@@ -1477,7 +1477,7 @@ data Status =
   | ERR_RNR
   | ERR_DEVICE_DEAD -- ^ The local device is gone, not coming back 
 
-    -- Error returned from remote peer indicating that the address was
+    -- | Error returned from remote peer indicating that the address was
     -- either invalid or unable to be used for access / permissions
     -- reasons.
   | ERR_RMA_HANDLE
