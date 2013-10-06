@@ -2,55 +2,62 @@ This repository contains Haskell bindings for the CCI library.
 
 See LICENSE for license information.
 
-CCI API:
-  https://parsci.assembla.com/code/cci-haskell/git/nodes/master/Network/CCI.hsc
+Building cci
+============
 
+Install latest cci first. You can get it from http://cci-forum.com/.
 
-== Building cci ==
+Then build and install the bindings:
 
-# Install latest cci first. You can get it from:
-http://cci-forum.com/
+    $ cabal install
 
-# Then build the bindings:
-cabal configure -f "examples tests"
-cabal build
+You might need extra flags if CCI is not installed in a standard
+location on your system:
 
-# If CCI is not in a standard folder:
-cabal configure -f "examples tests" --extra-lib-dirs=/path/to/cci/lib/folder \
-                               --extra-include-dirs=/path/to/cci/include/folder
-cabal build
+    $ cabal install --extra-lib-dirs=/path/to/cci/lib \
+                    --extra-include-dirs=/path/to/cci/include/
 
-# Then programs can be run with
-LD_LIBRARY_PATH=/path/to/cci/lib/folder some_program
+The `LD_LIBRARY_PATH` will also need to be set before running any
+program or test in this case:
 
+    $ export LD_LIBRARY_PATH=/path/to/cci/lib/
 
-# to generate documentation
-cabal haddock
+To generate HTML documentation:
 
+    $ cabal haddock
 
-== Running pingpong ==
+Examples
+========
 
-# Start the server
-dist/build/ex-pingpong/ex-pingpong -s
-  Opened ip://192.168.0.1:46188
-  ...
+pingpong
+--------
 
-# Start the client using rma transfers upto 4 MB.
-dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
+Start the server:
 
-# Start the client using active messages
-dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
+    $ ./dist/build/ex-pingpong/ex-pingpong -s
+    Opened ip://192.168.0.1:46188
+    ...
 
+Start the client using RMA transfers up to 4 MB:
 
-== Running tests ==
+    $ ./dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188 -r 4194304
+
+Start the client using active messages:
+
+    $ ./dist/build/ex-pingpong/ex-pingpong -h ip://192.168.0.1:46188
+
+Tests
+=====
 
 In short:
 
-LD_LIBRARY_PATH=/path/to/cci/lib dist/build/test-cci/test-cci
+    $ cabal configure --enable-tests
+    $ cabal build
+    $ cabal test
 
 See test/README for details.
 
-== Design notes ==
+Design notes
+============
 
 See design.txt.
-
