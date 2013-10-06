@@ -37,7 +37,7 @@ Flag examples
   Description: Build examples
   Default: False
 
-Executable ex-client
+Executable cci-example-client
   main-is:        examples/Client.hs
   ghc-options:    -O -Wall -idist/build
   if flag(examples)
@@ -45,7 +45,7 @@ Executable ex-client
   else
     buildable: False
 
-Executable ex-pingpong
+Executable cci-example-pingpong
   main-is:        examples/pingpong.hs
   ghc-options:    -O -Wall -idist/build -threaded
   if flag(examples)
@@ -53,7 +53,7 @@ Executable ex-pingpong
   else
     buildable: False
 
-Executable ex-server
+Executable cci-example-server
   main-is:        examples/Server.hs
   ghc-options:    -O -Wall -idist/build
   if flag(examples)
@@ -66,12 +66,12 @@ Executable test-cci
   hs-source-dirs: test
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
   if flag(tests)
-    build-depends:  base, bytestring, cci, containers, binary, process
-                  , filepath, mtl, random, cmdargs<0.11, pretty
+    build-depends:  base, bytestring, cci, containers, binary, process,
+                    filepath, mtl, random, cmdargs < 0.11, pretty
   else
     buildable: False
 
-Executable test-Worker
+Executable test-worker
   main-is:        Worker.hs
   ghc-options:    -O -Wall -idist/build -threaded
   hs-source-dirs: test
@@ -79,5 +79,3 @@ Executable test-Worker
     build-depends:  base, bytestring, cci, time, containers, binary
   else
     buildable: False
-
-
