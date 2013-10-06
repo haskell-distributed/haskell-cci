@@ -64,8 +64,8 @@ module Network.CCI
   -- ** RMA
   -- $rma
   , rmaRegister
-  , rmaDeregister 
-  , withRMALocalHandle 
+  , rmaDeregister
+  , withRMALocalHandle
   , RMA_MODE(..)
   , rmaRead
   , rmaWrite
@@ -102,7 +102,7 @@ module Network.CCI
   , getConn_SendTimeout
   , setConn_SendTimeout
   -- * Error handling
-  , strError 
+  , strError
   , CCIException(..)
   , Status(..)
   ) where
@@ -137,7 +137,7 @@ import System.IO.Unsafe       ( unsafePerformIO )
 -- > # Comments are anything after the # symbols.
 -- > # Sections in this file are denoted by [section name]. Each section
 -- > # denotes a single CCI device.
--- >  
+-- >
 -- > [bob0]
 -- > # The only mandated field in each section is "driver". It indicates
 -- > # which CCI driver should be applied to this device.
@@ -157,35 +157,35 @@ import System.IO.Unsafe       ( unsafePerformIO )
 -- > # will be used when NULL is passed as the device when creating an
 -- > # endpoint.
 -- > default = 1
--- > 
+-- >
 -- > # All other fields are uninterpreted by the CCI core; they're just
 -- > # passed to the driver. The driver can do whatever it wants with
 -- > # these values (e.g., system admins can set values to configure the
 -- > # driver). Driver documentation should specify what parameters are
 -- > # available, what each parameter is/does, and what its legal values
 -- > # are.
--- > 
+-- >
 -- > # This example shows a bonded PSM device that uses both the ipath0 and
 -- > # ipath1 devices. Some other parameters are also passed to the PSM
 -- > # driver; it assumedly knows how to handle them.
--- > 
+-- >
 -- > device = ipath0,ipath1
 -- > capabilities = bonded,failover,age_of_captain:52
 -- > qos_stuff = fast
--- > 
+-- >
 -- > # bob2 is another PSM device, but it only uses the ipath0 device.
 -- > [bob2]
 -- > driver = psm
 -- > device = ipath0
--- > 
+-- >
 -- > # bob3 is another PSM device, but it only uses the ipath1 device.
 -- > [bob3]
 -- > driver = psm
 -- > device = ipath1
 -- > sl = 3 # IB service level (if applicable)
--- > 
+-- >
 -- > # storage is a device that uses the sock driver (udp sockets). Note
--- > # that this driver allows specifying which device to use by specifying 
+-- > # that this driver allows specifying which device to use by specifying
 -- > # its IP address and MAC address -- assumedly it's an error if there is
 -- > # no single device that matches both the specified IP address and MAC
 -- > # (vs. specifying a specific device name).
@@ -204,7 +204,7 @@ import System.IO.Unsafe       ( unsafePerformIO )
 -- > # replace with your device mac address
 -- > mac = 00:e0:7d:ad:95:5e
 -- > default = 1
--- 
+--
 -- May throw:
 --
 --  * 'ENOMEM' Not enough memory to complete.
@@ -245,13 +245,13 @@ withCCI = bracket_ initCCI finalizeCCI
 -- Devices
 ------------------------------------------
 
--- | A device represents a network interface card (NIC) or host channel adapter 
--- (HCA) that connects the host and network. A device may provide multiple 
+-- | A device represents a network interface card (NIC) or host channel adapter
+-- (HCA) that connects the host and network. A device may provide multiple
 -- endpoints (typically one per core).
 --
-data Device = Device 
+data Device = Device
     { devPtr :: Ptr Device
-    , getDeviceInfo :: DeviceInfo -- ^ Device information 
+    , getDeviceInfo :: DeviceInfo -- ^ Device information
     }
 
 -- | Device information.
@@ -295,7 +295,7 @@ getDevices = do
     peekNullTerminated p i = do
       d <- peekElemOff p i
       if d == nullPtr then return []
-        else fmap (d:)$ peekNullTerminated p (i+1) 
+        else fmap (d:)$ peekNullTerminated p (i+1)
 
     mkDevice :: Ptr Device -> IO Device
     mkDevice p = do
@@ -310,7 +310,7 @@ getDevices = do
         pci_bus <- #{peek cci_device_t, pci.bus} p
         pci_dev <- #{peek cci_device_t, pci.dev} p
         pci_func <- #{peek cci_device_t, pci.func} p
-        return$ Device p DeviceInfo 
+        return$ Device p DeviceInfo
             { devName = name
             , devTransport = transport
             , devUp = up
@@ -333,24 +333,24 @@ foreign import ccall unsafe cci_get_devices :: Ptr (Ptr (Ptr Device)) -> IO CInt
 ------------------------------------------
 
 
--- | In CCI, an endpoint is the process virtual instance of a device. The endpoint 
--- is the container of all the communication resources needed by the process 
--- including queues and buffers including shared send and receive buffers. A 
--- single endpoint may communicate with any number of peers and provides a single 
--- completion queue regardless of the number of peers. CCI achieves better 
--- scalability on very large HPC and data center deployments since the endpoint 
+-- | In CCI, an endpoint is the process virtual instance of a device. The endpoint
+-- is the container of all the communication resources needed by the process
+-- including queues and buffers including shared send and receive buffers. A
+-- single endpoint may communicate with any number of peers and provides a single
+-- completion queue regardless of the number of peers. CCI achieves better
+-- scalability on very large HPC and data center deployments since the endpoint
 -- manages buffers independent of how many peers it is communicating with.
--- 
--- CCI uses an event model in which an application may either poll or wait for the 
--- next event.  Events include communication (e.g. send completions)  as well as 
--- connection handling (e.g. incoming client connection requests). The application 
--- should return the events to CCI when it no longer needs them. CCI 
--- achieves better scalability in time versus Sockets since all events are managed 
+--
+-- CCI uses an event model in which an application may either poll or wait for the
+-- next event.  Events include communication (e.g. send completions)  as well as
+-- connection handling (e.g. incoming client connection requests). The application
+-- should return the events to CCI when it no longer needs them. CCI
+-- achieves better scalability in time versus Sockets since all events are managed
 -- by a single completion queue.
 --
--- Because an endpoint serves many connections, some events carry a so-called 
--- context value which is user-defined and helps identifying with which connection 
--- and transfer operation the event is related. 
+-- Because an endpoint serves many connections, some events carry a so-called
+-- context value which is user-defined and helps identifying with which connection
+-- and transfer operation the event is related.
 --
 -- In this realization of the API, all events related to an endpoint use the same type
 -- for context values, which is expressed as the @ctx@ type parameter of 'Endpoint's,
@@ -403,8 +403,8 @@ createPollingEndpoint mdev = alloca$ \ppend -> do
 foreign import ccall unsafe cci_create_endpoint :: Ptr Device -> CInt -> Ptr Endpoint -> Ptr CInt -> IO CInt
 
 
--- | Frees resources associated with the endpoint. All open connections 
--- are closed immediately. It is exactly as if 'disconnect' was 
+-- | Frees resources associated with the endpoint. All open connections
+-- are closed immediately. It is exactly as if 'disconnect' was
 -- invoked on every open connection on this endpoint.
 --
 -- May throw driver-specific errors.
@@ -437,21 +437,21 @@ withPollingEndpoint mdev = bracket (createPollingEndpoint mdev) destroyEndpoint
 
 
 -- | CCI uses connections to allow an application to choose the level
--- of service that best fits its needs and to provide fault isolation 
--- should a peer stop responding. CCI does not, however, allocate 
+-- of service that best fits its needs and to provide fault isolation
+-- should a peer stop responding. CCI does not, however, allocate
 -- buffers per peer which reduces scalability.
 --
--- CCI offers choices of reliability and ordering. Some applications 
--- such as distributed filesystems need to know that data has arrived 
--- at the peer. A health monitoring application, on the other hand, 
--- may want to send data that has a very short lifetime and does not 
+-- CCI offers choices of reliability and ordering. Some applications
+-- such as distributed filesystems need to know that data has arrived
+-- at the peer. A health monitoring application, on the other hand,
+-- may want to send data that has a very short lifetime and does not
 -- want to expend any efforts on retransmission. CCI can accommodate both.
 --
--- CCI provides Unreliable-Unordered (UU), Reliable-Unordered (RU), 
--- and Reliable-Ordered (RO) connections as well as UU with send 
--- multicast and UU with receive multicast. Most RPC style applications 
+-- CCI provides Unreliable-Unordered (UU), Reliable-Unordered (RU),
+-- and Reliable-Ordered (RO) connections as well as UU with send
+-- multicast and UU with receive multicast. Most RPC style applications
 -- do not require ordering and can take advantage of RU connections.
--- When ordering is not required, CCI can take better advantage of 
+-- When ordering is not required, CCI can take better advantage of
 -- multiple network paths, etc.
 --
 -- This datatype represents connections for endpoints with contexts
@@ -480,7 +480,7 @@ connContext :: Connection -> WordPtr
 connContext (Connection pconn) = unsafePerformIO$ #{peek cci_connection_t, context} pconn
 
 
--- | Accepts a connection request and establish a connection with a 
+-- | Accepts a connection request and establish a connection with a
 -- specific endpoint.
 --
 -- May throw:
@@ -551,20 +551,20 @@ connect :: Endpoint     -- ^ Local endpoint to use for requested connection.
                         --     * With arguments: \"ip://foo.bar.com:eth1,eth3\"
 
         -> ByteString   -- ^ Connection data to be send in the connection request
-                        --   (for authentication, etc). 
+                        --   (for authentication, etc).
         -> ConnectionAttributes -- ^ Attributes of the requested connection (reliability,
                                 --   ordering, multicast, etc).
         -> WordPtr        -- ^ Pointer-sized integer used as context to identify the connection later.
-        -> Maybe Word64   -- ^ Timeout to wait for a connection in microseconds. Nothing means \"forever\". 
+        -> Maybe Word64   -- ^ Timeout to wait for a connection in microseconds. Nothing means \"forever\".
         -> IO ()
 connect (Endpoint pend) uri bdata ca pctx mtimeout = withCString uri$ \curi ->
    unsafeUseAsCStringLen bdata$ \(cdata,clen) -> do
-    let fconnect ptv = cci_connect pend curi cdata (fromIntegral clen) 
-                                   (fromIntegral$ fromEnum ca) (wordPtrToPtr pctx) 0 ptv 
+    let fconnect ptv = cci_connect pend curi cdata (fromIntegral clen)
+                                   (fromIntegral$ fromEnum ca) (wordPtrToPtr pctx) 0 ptv
                          >>= cci_check_exception
     case mtimeout of
       Nothing -> fconnect nullPtr
-      Just ts -> 
+      Just ts ->
         let (sec,usec) = divMod ts (10^(6::Int))
          in allocaBytesAligned #{size struct timeval} #{alignment struct timeval}$ \ptv -> do
               #{poke struct timeval, tv_sec} ptv sec
@@ -597,7 +597,7 @@ data ConnectionAttributes =
     -- issued.
   | CONN_ATTR_RU
     -- | Unreliable unordered (RMA forbidden). Delivery is not guaranteed,
-    -- and both delivery and completions may be in a different order 
+    -- and both delivery and completions may be in a different order
     -- than they were issued.
   | CONN_ATTR_UU
     -- Multicast send (RMA forbidden).
@@ -631,7 +631,7 @@ instance Enum ConnectionAttributes where
 ------------------------------------------
 
 -- $dt
--- CCI has two modes of communication: active messages (AM) and 
+-- CCI has two modes of communication: active messages (AM) and
 -- remote memory access (RMA).
 
 
@@ -639,14 +639,14 @@ instance Enum ConnectionAttributes where
 -- Active Messages
 ---------
 
--- $amsg 
--- Loosely based on Berkeley's Active Messages, CCI's messages are small 
--- (typically MTU sized) messages. Unlike Berkeley's AM, the message header 
--- does not include a handler address. Instead, the receiver's CCI library will 
--- generate a receive event that includes a pointer to the data within the CCI 
--- library's buffers. The application may inspect the data, copy it out if needed 
--- longer term, or even forward the data by passing it to the send function. 
--- By using events instead of handlers, the application does not block further 
+-- $amsg
+-- Loosely based on Berkeley's Active Messages, CCI's messages are small
+-- (typically MTU sized) messages. Unlike Berkeley's AM, the message header
+-- does not include a handler address. Instead, the receiver's CCI library will
+-- generate a receive event that includes a pointer to the data within the CCI
+-- library's buffers. The application may inspect the data, copy it out if needed
+-- longer term, or even forward the data by passing it to the send function.
+-- By using events instead of handlers, the application does not block further
 -- communication progress.
 
 
@@ -672,7 +672,7 @@ instance Enum ConnectionAttributes where
 -- May throw 'ERR_DISCONNECTED', 'ERR_RNR', or driver-specific errors.
 --
 send :: Connection -> ByteString -> WordPtr -> IO ()
-send conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx 0 
+send conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx 0
 
 -- | Like 'send' but will also block until the send completion has occurred.
 --
@@ -681,13 +681,13 @@ send conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx 0
 -- A safe foreign call is made when using this flag.
 --
 sendBlocking :: Connection -> ByteString -> WordPtr -> IO ()
-sendBlocking (Connection pconn) msg pctx = unsafeUseAsCStringLen msg$ \(cmsg,clen) -> 
+sendBlocking (Connection pconn) msg pctx = unsafeUseAsCStringLen msg$ \(cmsg,clen) ->
      safe_cci_send pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) #{const CCI_FLAG_BLOCKING}
            >>= cci_check_exception
 
--- | Like 'send' but no send completion will be generated. 
--- 
--- For reliable ordered connections, since completions are issued in order, the 
+-- | Like 'send' but no send completion will be generated.
+--
+-- For reliable ordered connections, since completions are issued in order, the
 -- completion of any non-SILENT send directly implies the completion of any
 -- previous SILENT sends. For unordered connections, completion ordering is
 -- not guaranteed -- it is not safe to assume that application protocol
@@ -700,9 +700,9 @@ sendBlocking (Connection pconn) msg pctx = unsafeUseAsCStringLen msg$ \(cmsg,cle
 sendSilent :: Connection -> ByteString -> WordPtr -> IO ()
 sendSilent conn msg pctx = unsafeUseAsCStringLen msg$ \cmsg -> send' conn cmsg pctx #{const CCI_FLAG_SILENT}
 
--- | Like 'send' but the message buffer remains in use until the send completion occurs. 
+-- | Like 'send' but the message buffer remains in use until the send completion occurs.
 --
--- The CCI implementation is therefore free to use \"zero copy\" types 
+-- The CCI implementation is therefore free to use \"zero copy\" types
 -- of transmission with the buffer if it wants to.
 --
 sendNoCopy :: Connection -> CStringLen -> WordPtr -> IO ()
@@ -714,7 +714,7 @@ sendNoCopySilent conn msg pctx = send' conn msg pctx (#{const CCI_FLAG_NO_COPY} 
 
 
 send' :: Connection -> CStringLen -> WordPtr -> CInt -> IO ()
-send' (Connection pconn) (cmsg,clen) pctx flags = 
+send' (Connection pconn) (cmsg,clen) pctx flags =
      cci_send pconn cmsg (fromIntegral clen) (wordPtrToPtr pctx) flags
            >>= cci_check_exception
 
@@ -727,20 +727,20 @@ foreign import ccall safe "cci_send" safe_cci_send :: Ptr ConnectionV -> Ptr CCh
 --
 -- Like 'send', 'sendv' sends a short message bound by
 -- 'connMaxSendSize'. Instead of a single data buffer,
--- 'sendv' allows the application to gather a list of 
+-- 'sendv' allows the application to gather a list of
 -- ByteStrings.
 --
 -- May throw driver-specific errors.
 --
 sendv :: Connection -> [ByteString] -> WordPtr -> IO ()
-sendv conn msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
+sendv conn msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen ->
     sendv' conn cmsgs clen pctx 0
 
 -- | Like 'sendv' and 'sendBlocking'.
 sendvBlocking :: Connection -> [ByteString] -> WordPtr -> IO ()
-sendvBlocking (Connection pconn) msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen -> 
+sendvBlocking (Connection pconn) msgs pctx = unsafeUseAsCStringLens msgs [] 0$ \cmsgs clen ->
      allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
-          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
+          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs)
           safe_cci_sendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) #{const CCI_FLAG_BLOCKING}
              >>= cci_check_exception
 
@@ -755,13 +755,13 @@ sendvNoCopy conn cmsgs pctx = sendv' conn cmsgs (Prelude.length cmsgs) pctx #{co
 
 -- | Like 'sendv' and 'sendNoCopySilent'.
 sendvNoCopySilent :: Connection -> [CStringLen] -> WordPtr -> IO ()
-sendvNoCopySilent conn cmsgs pctx = 
+sendvNoCopySilent conn cmsgs pctx =
     sendv' conn cmsgs (Prelude.length cmsgs) pctx (#{const CCI_FLAG_NO_COPY} .|. #{const CCI_FLAG_SILENT})
 
 sendv' :: Connection -> [CStringLen] -> Int -> WordPtr -> CInt -> IO ()
-sendv' (Connection pconn) cmsgs clen pctx flags = 
+sendv' (Connection pconn) cmsgs clen pctx flags =
      allocaBytesAligned (clen * #{size struct iovec}) #{alignment struct iovec}$ \piovecs -> do
-          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs) 
+          sequence_ (zipWith (write_iovec piovecs) [clen-1,clen-2..0] cmsgs)
           cci_sendv pconn piovecs (fromIntegral clen) (wordPtrToPtr pctx) flags
              >>= cci_check_exception
 
@@ -789,14 +789,14 @@ enumFlags = fromIntegral . foldl (\f-> (f.|.) . fromEnum) (0::Int)
 ---------
 
 -- $rma
--- When an application needs to move bulk data, CCI provides RMA. To 
--- use RMA, the application will explicitly register memory with CCI 
--- and receive a handle. The application can pass the handle to a peer 
--- using an active message and then perform a RMA Read or Write. The 
--- RMA may also include a Fence. RMA requires a reliable connection 
--- (ordered or unordered). An RMA may optionally include a remote 
--- completion message that will be delivered to the peer after the RMA 
--- completes. The completion message may be as large as a full active 
+-- When an application needs to move bulk data, CCI provides RMA. To
+-- use RMA, the application will explicitly register memory with CCI
+-- and receive a handle. The application can pass the handle to a peer
+-- using an active message and then perform a RMA Read or Write. The
+-- RMA may also include a Fence. RMA requires a reliable connection
+-- (ordered or unordered). An RMA may optionally include a remote
+-- completion message that will be delivered to the peer after the RMA
+-- completes. The completion message may be as large as a full active
 -- message.
 
 
@@ -821,7 +821,7 @@ rmaRegister (Endpoint pend) (cbuf,clen) m = alloca$ \p ->
     cci_rma_register pend cbuf (fromIntegral clen) (fromIntegral (fromEnum m)) p
       >>= cci_check_exception >> fmap RMALocalHandle (peek p)
 
-foreign import ccall unsafe cci_rma_register :: Ptr EndpointV 
+foreign import ccall unsafe cci_rma_register :: Ptr EndpointV
                                              -> Ptr CChar -> Word64 -> CInt -> Ptr (Ptr CChar) -> IO CInt
 
 -- | Mode for registered handles.
@@ -869,7 +869,7 @@ withRMALocalHandle e cs m = bracket (rmaRegister e cs m) (rmaDeregister e)
 -- | Transfers data in remote memory to local memory.
 --
 -- An RMA operation is a data transfer between local and remote buffers.
--- In order to obtain a RMAHandle to local buffers, you should use one of 
+-- In order to obtain a RMAHandle to local buffers, you should use one of
 -- 'rmaEndpointRegister' or 'rmaConnectionRegister'. To obtain a RMAHandle
 -- to a remote buffer, the handle should be transmitted
 --
@@ -898,7 +898,7 @@ withRMALocalHandle e cs m = bracket (rmaRegister e cs m) (rmaDeregister e)
 --
 --  * 'RMA_SILENT': Generates no local completion event (see 'send'
 --    for details).
--- 
+--
 -- May throw:
 --
 --  * 'EINVAL' if the connection is unreliable or the data length is 0.
@@ -906,7 +906,7 @@ withRMALocalHandle e cs m = bracket (rmaRegister e cs m) (rmaDeregister e)
 --  * driver-specific errors.
 --
 rmaRead :: Connection          -- ^ Connection used for the RMA transfer.
-        -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
+        -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer.
         -> RMALocalHandle      -- ^ Handle to the transfer destination.
         -> Word64              -- ^ Offset inside the destination buffer.
         -> RMARemoteHandle     -- ^ Handle to the transfer source.
@@ -915,17 +915,17 @@ rmaRead :: Connection          -- ^ Connection used for the RMA transfer.
         -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
         -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
         -> IO ()
-rmaRead (Connection pconn) mb (RMALocalHandle lhp) lo (RMARemoteHandle rh) ro dlen pctx flags = 
+rmaRead (Connection pconn) mb (RMALocalHandle lhp) lo (RMARemoteHandle rh) ro dlen pctx flags =
   unsafeUseAsCString rh$ \rhp ->
-   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen 
-                                (wordPtrToPtr pctx) (#{const CCI_FLAG_READ} .|. enumFlags flags) 
+   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen
+                                (wordPtrToPtr pctx) (#{const CCI_FLAG_READ} .|. enumFlags flags)
                             >>= cci_check_exception
     in case mb of
         Just b -> unsafeUseAsCStringLen b$ crma
         Nothing -> crma (nullPtr,0::Int)
 
-foreign import ccall unsafe cci_rma :: Ptr ConnectionV -> Ptr CChar -> Word32 
-                                    -> Ptr CChar -> Word64 -> Ptr CChar -> Word64 -> Word64 
+foreign import ccall unsafe cci_rma :: Ptr ConnectionV -> Ptr CChar -> Word32
+                                    -> Ptr CChar -> Word64 -> Ptr CChar -> Word64 -> Word64
                                     -> Ptr () -> CInt -> IO CInt
 
 
@@ -934,7 +934,7 @@ foreign import ccall unsafe cci_rma :: Ptr ConnectionV -> Ptr CChar -> Word32
 -- Flags are set the same than for 'rmaRead'.
 --
 rmaWrite :: Connection          -- ^ Connection used for the RMA transfer.
-         -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer. 
+         -> Maybe ByteString    -- ^ If @Just bs@, sends @bs@ as completion event to the peer.
          -> RMARemoteHandle     -- ^ Handle to the transfer destination.
          -> Word64              -- ^ Offset inside the destination buffer.
          -> RMALocalHandle      -- ^ Handle to the transfer source.
@@ -943,10 +943,10 @@ rmaWrite :: Connection          -- ^ Connection used for the RMA transfer.
          -> WordPtr             -- ^ Context to deliver in the local 'EvSend' event.
          -> [RMA_FLAG]          -- ^ Flags specifying the transfer.
          -> IO ()
-rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lhp) lo dlen pctx flags = 
+rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lhp) lo dlen pctx flags =
   unsafeUseAsCString rh$ \rhp ->
-   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen 
-                                (wordPtrToPtr pctx) (#{const CCI_FLAG_WRITE} .|. enumFlags flags) 
+   let crma (cb,clen) = cci_rma pconn cb (fromIntegral clen) lhp lo rhp ro dlen
+                                (wordPtrToPtr pctx) (#{const CCI_FLAG_WRITE} .|. enumFlags flags)
                             >>= cci_check_exception
     in case mb of
         Just b -> unsafeUseAsCStringLen b$ crma
@@ -955,9 +955,9 @@ rmaWrite (Connection pconn) mb (RMARemoteHandle rh) ro (RMALocalHandle lhp) lo d
 
 -- | Flags for 'rmaRead' and 'rmaWrite'.
 data RMA_FLAG =
-    RMA_BLOCKING 
-  | RMA_NO_COPY  
-  | RMA_SILENT 
+    RMA_BLOCKING
+  | RMA_NO_COPY
+  | RMA_SILENT
   | RMA_FENCE
 
 
@@ -1035,9 +1035,9 @@ getEvent (Endpoint pend) = alloca$ \pev -> do
 foreign import ccall unsafe cci_get_event :: Ptr EndpointV -> Ptr (Event s) -> IO CInt
 
 
--- | This function gives back to the CCI implementation the 
--- buffer associated with an event that was previously obtained 
--- via 'getEvent'. The data buffer associated with the event will 
+-- | This function gives back to the CCI implementation the
+-- buffer associated with an event that was previously obtained
+-- via 'getEvent'. The data buffer associated with the event will
 -- immediately become stale to the application.
 --
 -- Events may be returned in any order; they do not need to be returned
@@ -1070,7 +1070,7 @@ tryWithEventData ::
    -> (forall s. EventData s -> IO a) -- ^ Callback for the case when an event is available.
    -> IO a  -- ^ Yields the callback or the no-event action result.
 tryWithEventData endp noEvent f = mask_$ do
-    mev <- getEvent endp 
+    mev <- getEvent endp
     case mev of
       Nothing -> noEvent
       Just ev -> do
@@ -1080,10 +1080,10 @@ tryWithEventData endp noEvent f = mask_$ do
           return r
 
 -- | Like 'tryWithEventData' but blocks if no events are available.
-withEventData :: 
+withEventData ::
    Endpoint   -- ^ Endpoint on which to listen for events.
    -> Fd      -- ^ OS handle to block onto.
-   -> (forall s. EventData s -> IO a) 
+   -> (forall s. EventData s -> IO a)
    -> IO a  -- ^ Yields the callback result.
 withEventData endp fd f = go
   where
@@ -1091,9 +1091,9 @@ withEventData endp fd f = go
 
 
 -- | Like 'tryWithEventData' but loops polling until events are available.
-pollWithEventData :: 
+pollWithEventData ::
    Endpoint   -- ^ Endpoint on which to listen for events.
-   -> (forall s. EventData s -> IO a) 
+   -> (forall s. EventData s -> IO a)
    -> IO a  -- ^ Yields the callback result.
 pollWithEventData endp f = go
   where
@@ -1102,10 +1102,10 @@ pollWithEventData endp f = go
 
 -- | Event representation.
 --
--- The @s@ parameter encodes the scope in which the event is valid. 
+-- The @s@ parameter encodes the scope in which the event is valid.
 -- It prevents the Event from escaping the 'withEventData'-like functions
 -- which clearly define its lifetime. The protection is limited though.
--- Launching threads from these functions or using existential types 
+-- Launching threads from these functions or using existential types
 -- would sidestep the constraint.
 --
 newtype Event s = Event (Ptr EventV)
@@ -1119,33 +1119,33 @@ getEventData :: Event s -> IO (EventData s)
 getEventData ev@(Event pev) = do
     t <- #{peek cci_event_t, type} pev
     case t::CInt of
-      #{const CCI_EVENT_SEND} -> 
+      #{const CCI_EVENT_SEND} ->
           liftM3 EvSend (#{peek cci_event_send_t, context} pev)
                         (fmap ctoEnum$ #{peek cci_event_send_t, status} pev)
                         (#{peek cci_event_send_t, connection} pev)
-      #{const CCI_EVENT_RECV} -> 
+      #{const CCI_EVENT_RECV} ->
           liftM2 EvRecv (join$ liftM2 mkEventBytes
-                                      (#{peek cci_event_recv_t, ptr} pev) 
+                                      (#{peek cci_event_recv_t, ptr} pev)
                                       (#{peek cci_event_recv_t, len} pev))
                         (#{peek cci_event_recv_t, connection} pev)
       #{const CCI_EVENT_CONNECT} -> do
           st <- #{peek cci_event_connect_t, status} pev
-          liftM2 EvConnect (fmap ptrToWordPtr$ #{peek cci_event_connect_t, context} pev) 
+          liftM2 EvConnect (fmap ptrToWordPtr$ #{peek cci_event_connect_t, context} pev)
                            (toEither st$ #{peek cci_event_connect_t, connection} pev)
       #{const CCI_EVENT_ACCEPT} -> do
           st <- #{peek cci_event_accept_t, status} pev
-          liftM2 EvAccept (fmap ptrToWordPtr$ #{peek cci_event_accept_t, context} pev) 
+          liftM2 EvAccept (fmap ptrToWordPtr$ #{peek cci_event_accept_t, context} pev)
                           (toEither st$ #{peek cci_event_accept_t, connection} pev)
-      #{const CCI_EVENT_CONNECT_REQUEST} -> 
+      #{const CCI_EVENT_CONNECT_REQUEST} ->
           liftM2 (EvConnectRequest ev) (join$ liftM2 mkEventBytes
-                                              (#{peek cci_event_connect_request_t, data_ptr} pev) 
+                                              (#{peek cci_event_connect_request_t, data_ptr} pev)
                                               (#{peek cci_event_connect_request_t, data_len} pev))
                                        (fmap ctoEnum$ #{peek cci_event_connect_request_t, attribute} pev)
-      #{const CCI_EVENT_KEEPALIVE_TIMEDOUT} -> 
-          fmap EvKeepAliveTimedOut (#{peek cci_event_keepalive_timedout_t, connection} pev) 
-      #{const CCI_EVENT_ENDPOINT_DEVICE_FAILED} -> 
-          fmap EvEndpointDeviceFailed (#{peek cci_event_endpoint_device_failed_t, endpoint} pev) 
-          
+      #{const CCI_EVENT_KEEPALIVE_TIMEDOUT} ->
+          fmap EvKeepAliveTimedOut (#{peek cci_event_keepalive_timedout_t, connection} pev)
+      #{const CCI_EVENT_ENDPOINT_DEVICE_FAILED} ->
+          fmap EvEndpointDeviceFailed (#{peek cci_event_endpoint_device_failed_t, endpoint} pev)
+
       _ -> error$ "getEventData: unexpected event type: "++show t
   where
     mkEventBytes p len = return$ EventBytes (p,fromIntegral (len::CInt))
@@ -1153,16 +1153,16 @@ getEventData ev@(Event pev) = do
     ctoEnum = toEnum . fromIntegral
     toEither :: CInt -> IO Connection -> IO (Either Status Connection)
     toEither #{const CCI_SUCCESS} c = fmap Right c
-    toEither st                   _ = return$ Left$ ctoEnum st 
+    toEither st                   _ = return$ Left$ ctoEnum st
 
 
 
 -- | Bytes owned by an 'Event'. They will be released when the event is returned.
 --
--- The @s@ parameter encodes the scope in which the event is valid. 
+-- The @s@ parameter encodes the scope in which the event is valid.
 -- It prevents the EventBytes from escaping the 'withEventData'-like functions
 -- which clearly define their lifetime. The protection is limited though.
--- Launching threads from these functions or using existential types 
+-- Launching threads from these functions or using existential types
 -- would sidestep the constraint.
 --
 newtype EventBytes s = EventBytes CStringLen
@@ -1182,10 +1182,10 @@ unsafePackEventBytes (EventBytes bs) = unsafePackCStringLen bs
 
 -- | Representation of data contained in events.
 --
--- The @s@ parameter encodes the scope in which the event is valid. 
+-- The @s@ parameter encodes the scope in which the event is valid.
 -- It prevents the EventData from escaping the 'withEventData'-like functions
 -- which clearly define their lifetime. The protection is limited though.
--- Launching threads from these functions or using existential types 
+-- Launching threads from these functions or using existential types
 -- would sidestep the constraint.
 --
 data EventData s =
@@ -1201,7 +1201,7 @@ data EventData s =
     -- layer -- there is no guarantee that it is \"on the wire\", etc.).
     -- Other send statuses will only be returned for local errors.
     --
-    -- Contains the context provided to 'send', the result of the 
+    -- Contains the context provided to 'send', the result of the
     -- send and the connection.
     --
     EvSend WordPtr Status Connection
@@ -1212,7 +1212,7 @@ data EventData s =
     --
     -- Contains the transmitted data which is valid as long as the event
     -- is not returned ('returnEvent').
-    -- 
+    --
   | EvRecv (EventBytes s) Connection
 
     -- | A new outgoing connection was successfully accepted at the
@@ -1282,7 +1282,7 @@ data EventData s =
 --  * The CCI implementation will automatically send control
 --    hearbeats across an inactive (but still alive) connection to
 --    reset the peer's keepalive timer before it times out.
--- 
+--
 -- If a keepalive event is raised, the keepalive timeout is set to
 -- 0 (i.e., it must be \"re-armed\" before it will timeout again),
 -- but the connection is *not* disconnected. Recovery decisions
@@ -1326,7 +1326,7 @@ setEndpt_RecvBufCount = setEndpointOpt' #{const CCI_OPT_ENDPT_RECV_BUF_COUNT} po
 -- | RMA registration alignment requirements can be retrieved for an endpoint.
 --
 -- The CTP will yield the minimal alignment needed for different operations.
--- A value of 0 indicates that there are no alignment requirements for that 
+-- A value of 0 indicates that there are no alignment requirements for that
 -- operation. A value of 4, for example, indicates that that member must be 4-byte
 -- aligned.
 --
@@ -1360,7 +1360,7 @@ foreign import ccall unsafe cci_set_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
 foreign import ccall unsafe cci_get_opt :: Ptr () -> CInt -> Ptr () -> IO CInt
 
 
-data RMAAlignments = RMAAlignments 
+data RMAAlignments = RMAAlignments
     { rmaWriteLocalAddr :: Word32
     , rmaWriteRemoteAddr :: Word32
     , rmaWriteLength :: Word32
@@ -1474,7 +1474,7 @@ data Status =
     --
     -- This error code will not be returned for unreliable sends.
   | ERR_RNR
-  | ERR_DEVICE_DEAD -- ^ The local device is gone, not coming back 
+  | ERR_DEVICE_DEAD -- ^ The local device is gone, not coming back
 
     -- | Error returned from remote peer indicating that the address was
     -- either invalid or unable to be used for access / permissions
@@ -1489,15 +1489,15 @@ data Status =
 
   -- Errno.h error codes
 
-  | EINVAL -- ^ Invalid parameter passed to CCI function call 
-  
+  | EINVAL -- ^ Invalid parameter passed to CCI function call
+
    -- | For a reliable send, this error code means that the sender did
    -- not get anything back from the receiver within a timeout (no
    -- ACK, no NACK, etc.). It is unknown whether the receiver
    -- actually received the message or not.
    --
    -- This error code won't occur for unreliable sends.
-   -- 
+   --
    -- One other place where @ETIMEDOUT@ appears is when an outgoing
    -- connection request expires (in an 'EvConnect' event).
   | ETIMEDOUT
@@ -1506,9 +1506,9 @@ data Status =
   | ENODEV    -- ^ No device available
   | EBUSY     -- ^ Resource busy (e.g. port in use)
   | ERANGE    -- ^ Value out of range (e.g. no port available)
-  | EAGAIN    -- ^ Resource temporarily unavailable 
+  | EAGAIN    -- ^ Resource temporarily unavailable
   | ENOBUFS   -- ^ The output queue for a network interface is full
-  | EMSGSIZE  -- ^ Message too long 
+  | EMSGSIZE  -- ^ Message too long
   | ENOMSG    -- ^ No message of desired type
   | EADDRNOTAVAIL -- ^ Address not available
   | OTHER Int
@@ -1522,7 +1522,7 @@ cci_check_exception c = throwIO$ CCIException$ toEnum$ fromIntegral c
 
 instance Enum Status where
 
- fromEnum c = 
+ fromEnum c =
    case c of
      SUCCESS             -> #{const CCI_SUCCESS}
      ERROR               -> #{const CCI_ERROR}
@@ -1546,8 +1546,8 @@ instance Enum Status where
      ENOMSG              -> #{const CCI_ENOMSG}
      EADDRNOTAVAIL       -> #{const CCI_EADDRNOTAVAIL}
      OTHER co            -> co
- 
- toEnum c = 
+
+ toEnum c =
    case c of
      #{const CCI_SUCCESS}             -> SUCCESS
      #{const CCI_ERROR}               -> ERROR
@@ -1571,6 +1571,3 @@ instance Enum Status where
      #{const CCI_ENOMSG}              -> ENOMSG
      #{const CCI_EADDRNOTAVAIL}       -> EADDRNOTAVAIL
      _ -> OTHER c
-    
-
-
