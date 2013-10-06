@@ -28,13 +28,10 @@ source-repository this
 
 Library
   exposed-modules:     Network.CCI
-  other-modules:       
-
-  build-depends:       base >= 4.3
-                       , bytestring
-                       
-  ghc-options:      -O -Wall
-
+  other-modules:
+  build-depends:       base >= 4.3,
+                       bytestring >= 0.9
+  ghc-options:         -O -Wall
   extra-libraries:  cci
 
 
