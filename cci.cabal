@@ -1,9 +1,3 @@
---
--- Copyright (C) 2012 Parallel Scientific. All rights reserved.
---
--- See the accompanying COPYING file for license information.
---
-
 Name:         cci
 Version:      0.3.0
 Synopsis:     Bindings for the CCI networking library
