@@ -18,13 +18,7 @@ Cabal-Version: >= 1.8
 
 source-repository head
     type:     git
-    location: https://parsci.assembla.com/code/cci-haskell/git/nodes
-
-source-repository this
-    type:     git
-    location: https://parsci.assembla.com/code/cci-haskell/git/nodes
-    tag:      0.3.0
-
+    location: git://github.com/ps-labs/haskell-cci
 
 Library
   exposed-modules:     Network.CCI
