@@ -1,21 +1,20 @@
-Name:         cci
-Version:      0.3.0
-Synopsis:     Bindings for the CCI networking library
-Description:  The CCI project is an open source communication interface that
-              aims to provide a simple and portable API, high performance,
-              scalability for the largest deployments, and robustness in the
-              presence of faults. It is developed and maintained by a
-              partnership of research, academic, and industry members.
-              .
-              See <http://cci-forum.com> for details.
-
-License:             BSD3
-License-file:        COPYING
-Author:              Facundo Domínguez, Parallel Scientific LLC
-Maintainer:          Facundo Domínguez <facundo.dominguez@parsci.com>
-Category:            Network
-Build-Type:          Simple
-Cabal-Version:       >= 1.8
+Name:          cci
+Version:       0.3.0
+Synopsis:      Bindings for the CCI networking library
+Description:   The CCI project is an open source communication interface that
+               aims to provide a simple and portable API, high performance,
+               scalability for the largest deployments, and robustness in the
+               presence of faults. It is developed and maintained by a
+               partnership of research, academic, and industry members.
+               .
+               See <http://cci-forum.com> for details.
+Copyright:     (C) 2012-2013 Parallel Scientific Labs, LLC
+Maintainer:    Facundo Domínguez <facundo.dominguez@parsci.com>
+License:       BSD3
+License-file:  COPYING
+Category:      Network
+Build-Type:    Simple
+Cabal-Version: >= 1.8
 
 source-repository head
     type:     git

@@ -1,24 +1,23 @@
---
--- Copyright (C) 2012 Parallel Scientific. All rights reserved.
---
--- See the accompanying COPYING file for license information.
---
-
-{-# LANGUAGE DeriveDataTypeable         #-} 
+{-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE EmptyDataDecls             #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE ForeignFunctionInterface   #-}
-{-# LANGUAGE GADTs                      #-} 
+{-# LANGUAGE GADTs                      #-}
+
+-- |
+-- Copyright : (C) 2012-2013 Parallel Scientific Labs, LLC.
+-- License   : BSD3
+--
+-- Haskell bindings for CCI.
+--
+-- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface>.
+-- Most of the comments in this module has been taken and reedited from there.
+--
 
 #let alignment t = "%lu", (unsigned long)offsetof(struct {char x__; t (y__);}, y__)
 
--- | Haskell bindings for CCI. 
---
--- See <http://www.olcf.ornl.gov/center-projects/common-communication-interface> .
--- Most of the comments in this module has been taken and reedited from there.
---
 module Network.CCI
   ( initCCI
   , finalizeCCI
