@@ -14,30 +14,26 @@ License:       BSD3
 License-file:  LICENSE
 Category:      Network
 Build-Type:    Simple
-Cabal-Version: >= 1.8
+Cabal-Version: >= 1.10
 
 source-repository head
     type:     git
     location: git://github.com/ps-labs/haskell-cci
 
 Library
+  default-language: Haskell2010
   exposed-modules:  Network.CCI
-  other-modules:
   build-depends:    base >= 4.3,
                     bytestring >= 0.9
   ghc-options:      -O -Wall
   extra-libraries:  cci
-
-
-Flag tests
-  Description: Build tests
-  Default: False
 
 Flag examples
   Description: Build examples
   Default: False
 
 Executable cci-example-client
+  default-language: Haskell2010
   main-is:        examples/Client.hs
   ghc-options:    -O -Wall -idist/build
   if flag(examples)
@@ -46,6 +42,7 @@ Executable cci-example-client
     buildable: False
 
 Executable cci-example-pingpong
+  default-language: Haskell2010
   main-is:        examples/pingpong.hs
   ghc-options:    -O -Wall -idist/build -threaded
   if flag(examples)
@@ -54,6 +51,7 @@ Executable cci-example-pingpong
     buildable: False
 
 Executable cci-example-server
+  default-language: Haskell2010
   main-is:        examples/Server.hs
   ghc-options:    -O -Wall -idist/build
   if flag(examples)
@@ -61,21 +59,19 @@ Executable cci-example-server
   else
     buildable: False
 
-Executable test-cci
+Test-Suite test-cci
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
   main-is:        test_cci.hs
   hs-source-dirs: test
   ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
-  if flag(tests)
-    build-depends:  base, bytestring, cci, containers, binary, process,
-                    filepath, mtl, random, cmdargs < 0.11, pretty
-  else
-    buildable: False
+  build-depends:  base, bytestring, cci, containers, binary, process,
+                  filepath, mtl, random, cmdargs < 0.11, pretty
 
-Executable test-worker
+Test-Suite test-worker
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
   main-is:        Worker.hs
   ghc-options:    -O -Wall -idist/build -threaded
   hs-source-dirs: test
-  if flag(tests)
-    build-depends:  base, bytestring, cci, time, containers, binary
-  else
-    buildable: False
+  build-depends:  base, bytestring, cci, time, containers, binary
