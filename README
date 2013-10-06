@@ -1,6 +1,6 @@
 This repository contains Haskell bindings for the CCI library.
 
-See COPYING for license information.
+See LICENSE for license information.
 
 CCI API:
   https://parsci.assembla.com/code/cci-haskell/git/nodes/master/Network/CCI.hsc
