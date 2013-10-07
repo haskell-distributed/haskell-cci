@@ -60,4 +60,4 @@ See test/README for details.
 Design notes
 ============
 
-See design.txt.
+See [here](NOTES.md).

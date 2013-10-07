@@ -85,20 +85,20 @@ peer occurs. They can have associated reliability and ordering
 requirements.
 
 Stablishing a connection requires the peers to engage in client and
-server roles. The client peer issues a call "connect" specifying
+server roles. The client peer issues a call `connect` specifying
 a remote endpoint, and the server peer must be listening for events on
 that endpoint. The client peer then needs to listen for events to
 learn if its connection request was accepted or not. When receiving
-a connection request, the server can use calls "accept" or "reject"
+a connection request, the server can use calls `accept` or `reject`
 for that purpose.
 
 After the connection is established, either of the peers can issue
-a call to "disconnect" to terminate the connection.
+a call to `disconnect` to terminate the connection.
 
 Since connections are object whose attributes do not change during its
 lifetime, we provide pure accessor functions. The connection offers
-however a "context" field which is used to handle an pointer provided
-by the user. It may be possible that we made this field writable in
+however a `context` field which is used to handle an pointer provided
+by the user. It may be possible that we make this field writable in
 the future. We represent this user suplied pointers in Haskell with
 the `Foreign.Ptr.WordPtr` type.
 
@@ -215,7 +215,7 @@ CCI_DECLSPEC int cci_set_opt(void * handle,cci_opt_name_t name, void *val);
 CCI_DECLSPEC int cci_get_opt(void * handle,cci_opt_name_t name, void *val);
 ```
 Here handle can be either a connection or an endpoint object, and the
-type of the thing pointed by val depends on the value passed as "name"
+type of the thing pointed by val depends on the value passed as `name`
 which identifies the parameter to query or set.
 
 In Haskell we have made access to parameters typed at the expense of
