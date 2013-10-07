@@ -3,20 +3,20 @@ This file describes how to use the test generator.
 For details on the design of test generation see design.txt.
 
 
-The test are run by issuing the following commands from the cci-haskell parent folder:
+The tests are run by issuing the following commands from the top-level folder:
 
-cabal config -f tests
+cabal configure --enable-tests
 cabal build
 dist/build/test-cci/test-cci
 
 If cci is installed in a non-standard folder the procedure needs to be changed
 as follows:
 
-cabal config -f tests --extra-lib-dirs=/path/to/cci/lib
+cabal configure --enable-tests --extra-lib-dirs=/path/to/cci/lib
 cabal build
 LD_LIBRARY_PATH=/path/to/cci/lib dist/build/test-cci/test-cci
 
-test_cci launches several worker processes which test the CCI features. cci_test
+test-cci launches several worker processes which test the CCI features. cci_test
 is said to be in the driver role and drives these workers by spoon-feeding them 
 with commands involving CCI calls. Communication with the workers is done 
 through the standard input and output.
