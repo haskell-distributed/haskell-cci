@@ -23,7 +23,6 @@ import Data.List       ( sort, nub, sortBy, groupBy, intersect, isInfixOf )
 import Data.Typeable   ( Typeable )
 import Data.Data       ( Data )
 import Foreign.Ptr     ( WordPtr )
-import Prelude hiding  ( catch )
 import System.FilePath ( (</>) )
 import System.IO       ( Handle, hGetLine, hPrint, hFlush, hWaitForInput, openBinaryFile, IOMode(..), hGetContents, hClose )
 import System.Process  ( waitForProcess, terminateProcess, ProcessHandle

@@ -21,7 +21,6 @@
 -- See test/test_cci.hs for an example of driver process.
 {-# LANGUAGE ForeignFunctionInterface   #-}
 
-import Prelude hiding          ( catch )
 import Control.Exception       ( catch, SomeException )
 import Control.Monad           ( when )
 import Data.Binary             ( decode, encode )
