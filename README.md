@@ -55,7 +55,7 @@ In short:
     $ cabal build
     $ cabal test
 
-See test/README for details.
+See [test/README](test/README) for details.
 
 Design notes
 ============
