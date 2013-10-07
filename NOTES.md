@@ -84,7 +84,7 @@ Connections are the context in which communication with a specific
 peer occurs. They can have associated reliability and ordering
 requirements.
 
-Stablishing a connection requires the peers to engage in client and
+Establishing a connection requires the peers to engage in client and
 server roles. The client peer issues a call `connect` specifying
 a remote endpoint, and the server peer must be listening for events on
 that endpoint. The client peer then needs to listen for events to
@@ -95,12 +95,12 @@ for that purpose.
 After the connection is established, either of the peers can issue
 a call to `disconnect` to terminate the connection.
 
-Since connections are object whose attributes do not change during its
-lifetime, we provide pure accessor functions. The connection offers
-however a `context` field which is used to handle an pointer provided
-by the user. It may be possible that we make this field writable in
-the future. We represent this user suplied pointers in Haskell with
-the `Foreign.Ptr.WordPtr` type.
+Since a connection is an object whose attributes do not change during
+its lifetime, we provide pure accessor functions. The connection
+offers however a `context` field which is used to handle a pointer
+provided by the user. It may be possible that we make this field
+writable in the future. We represent this user suplied pointers in
+Haskell with the `Foreign.Ptr.WordPtr` type.
 
 As the number of connection attributes
 (reliability/ordering/multicast) is small, we translate C enumeration
@@ -203,7 +203,7 @@ less likely.
 Options
 =======
 
-There are various parameters that can be inquiered or set from the
+There are various parameters that can be inquired or set from the
 transport implementation. For instance, timeouts for sends and
 connection requests, or an endpoint URI, or the amount of resources
 allotted for the endpoint.
@@ -247,10 +247,9 @@ Error handling
 
 Most functions in the CCI C API can return an integer error code. We
 test for this result on every function and throw an exception if the
-call fails. The carries the error code. A function `strError` can be
-used to obtain a human readable description of the error.
+call fails. The exception carries the error code. A function
+`strError` can be used to obtain a human readable description of the
+error.
 
 We currently treat errors as being sparse enough to tolerate being
-converted to and from a Haskell enumerated type (abstract data type
-with an `Enum` instance).
-
+converted to and from a Haskell enumerated type.
