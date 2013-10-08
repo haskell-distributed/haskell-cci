@@ -35,10 +35,10 @@ import Commands        ( Command(..), Response(..), Msg(..)  )
 
 
 testFolder :: FilePath
-testFolder = "dist" </> "build" </> "test-Worker"
+testFolder = "dist" </> "build" </> "test-worker"
 
 workerPath :: FilePath
-workerPath = testFolder </> "test-Worker"
+workerPath = testFolder </> "test-worker"
 
 
 -- | Parameters for running tests
