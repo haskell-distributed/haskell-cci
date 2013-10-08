@@ -655,8 +655,7 @@ char* get_endpoint_name(cci_endpoint_t* ep) {
 
 void create_endpoint(cci_endpoint_t** endpoint) {
 
-	cci_os_handle_t ep_fd;
-	int ret = cci_create_endpoint(NULL, 0, endpoint, &ep_fd);
+	int ret = cci_create_endpoint(NULL, 0, endpoint, NULL);
 	if (ret) {
 		fprintf(stderr, "cci_create_endpoint() failed with %s\n",
 			cci_strerror(*endpoint,ret));
