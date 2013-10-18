@@ -107,7 +107,7 @@ module Network.CCI
   , Status(..)
   ) where
 
-import Control.Concurrent     ( threadWaitRead )
+import Control.Concurrent     ( threadWaitRead, yield )
 import Control.Exception      ( Exception, throwIO, bracket, bracket_, onException, mask_ )
 import Control.Monad          ( liftM2, liftM3, join )
 import Data.Bits              ( (.|.) )
@@ -1098,7 +1098,7 @@ pollWithEventData ::
    -> IO a  -- ^ Yields the callback result.
 pollWithEventData endp f = go
   where
-    go = tryWithEventData endp go f
+    go = tryWithEventData endp (yield >> go) f
 
 
 -- | Event representation.
