@@ -107,7 +107,7 @@ module Network.CCI
   , Status(..)
   ) where
 
-import Control.Concurrent     ( threadWaitRead )
+import Control.Concurrent     ( threadWaitRead, yield )
 import Control.Exception      ( Exception, throwIO, bracket, bracket_, onException, mask_ )
 import Control.Monad          ( liftM2, liftM3, join )
 import Data.Bits              ( (.|.) )
@@ -869,9 +869,10 @@ withRMALocalHandle e cs m = bracket (rmaRegister e cs m) (rmaDeregister e)
 -- | Transfers data in remote memory to local memory.
 --
 -- An RMA operation is a data transfer between local and remote buffers.
--- In order to obtain a RMAHandle to local buffers, you should use one of
--- 'rmaEndpointRegister' or 'rmaConnectionRegister'. To obtain a RMAHandle
--- to a remote buffer, the handle should be transmitted
+-- In order to obtain an RMA handle to local buffers, you should use
+-- 'rmaRegister'. To obtain an RMA handle to a remote buffer, the handle
+-- should be transmitted (see 'rmaHandle2ByteString' and
+-- 'createRMARemoteHandle').
 --
 -- Adding the 'RMA_FENCE' flag ensures all previous operations are guaranteed to complete
 -- remotely prior to this operation and all subsequent operations. Remote
@@ -1097,7 +1098,7 @@ pollWithEventData ::
    -> IO a  -- ^ Yields the callback result.
 pollWithEventData endp f = go
   where
-    go = tryWithEventData endp go f
+    go = tryWithEventData endp (yield >> go) f
 
 
 -- | Event representation.
