@@ -59,6 +59,15 @@ Executable cci-example-server
   else
     buildable: False
 
+Executable cci-example-registration-benchmark
+  default-language: Haskell2010
+  main-is:        examples/registration-benchmark.hs
+  ghc-options:    -O -Wall -idist/build
+  if flag(examples)
+    build-depends:  base, bytestring, cci, time
+  else
+    buildable: False
+
 Test-Suite test-cci
   default-language: Haskell2010
   type: exitcode-stdio-1.0
