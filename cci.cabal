@@ -23,9 +23,9 @@ source-repository head
 Library
   default-language: Haskell2010
   exposed-modules:  Network.CCI
-  build-depends:    base >= 4.3,
+  build-depends:    base >= 4.3 && < 5,
                     bytestring >= 0.9
-  ghc-options:      -O -Wall
+  ghc-options:      -Wall
   extra-libraries:  cci
 
 Flag examples
@@ -35,7 +35,7 @@ Flag examples
 Executable cci-example-client
   default-language: Haskell2010
   main-is:        examples/Client.hs
-  ghc-options:    -O -Wall -idist/build
+  ghc-options:    -Wall -idist/build
   if flag(examples)
     build-depends:  base, bytestring, cci
   else
@@ -44,7 +44,7 @@ Executable cci-example-client
 Executable cci-example-pingpong
   default-language: Haskell2010
   main-is:        examples/pingpong.hs
-  ghc-options:    -O -Wall -idist/build -threaded
+  ghc-options:    -Wall -idist/build -threaded
   if flag(examples)
     build-depends:  base, bytestring, cci, time
   else
@@ -53,7 +53,7 @@ Executable cci-example-pingpong
 Executable cci-example-server
   default-language: Haskell2010
   main-is:        examples/Server.hs
-  ghc-options:    -O -Wall -idist/build
+  ghc-options:    -Wall -idist/build
   if flag(examples)
     build-depends:  base, bytestring, cci
   else
@@ -62,7 +62,7 @@ Executable cci-example-server
 Executable cci-example-registration-benchmark
   default-language: Haskell2010
   main-is:        examples/registration-benchmark.hs
-  ghc-options:    -O -Wall -idist/build
+  ghc-options:    -Wall -idist/build
   if flag(examples)
     build-depends:  base, bytestring, cci, time
   else
@@ -73,7 +73,7 @@ Test-Suite test-cci
   type: exitcode-stdio-1.0
   main-is:        test_cci.hs
   hs-source-dirs: test
-  ghc-options:    -O -Wall -fno-warn-name-shadowing -idist/build
+  ghc-options:    -Wall -fno-warn-name-shadowing -idist/build
   build-depends:  base, bytestring, cci, containers, binary, process,
                   filepath, mtl, random, cmdargs < 0.11, pretty
 
@@ -81,6 +81,6 @@ Test-Suite test-worker
   default-language: Haskell2010
   type: exitcode-stdio-1.0
   main-is:        Worker.hs
-  ghc-options:    -O -Wall -idist/build -threaded
+  ghc-options:    -Wall -idist/build -threaded
   hs-source-dirs: test
   build-depends:  base, bytestring, cci, time, containers, binary
