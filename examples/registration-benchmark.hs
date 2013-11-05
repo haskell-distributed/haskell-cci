@@ -82,7 +82,9 @@ main = do
     do
       buf <- evaluate $ B.replicate sz 0
       measureAndReport "copying" $
-        replicateM_ iters $ evaluate $ B.copy buf
+        let go _ 0 = return ()
+            go x n = evaluate (B.copy x) >> go x (n-1)
+         in go buf iters
 
     -- measure allocation time
     do
