@@ -1,11 +1,14 @@
-This repository contains Haskell bindings for the CCI library.
+This repository contains Haskell bindings for the CCI library. There
+is more information about CCI at https://www.olcf.ornl.gov/center-projects/common-communication-interface/  
+
+Beware that this repository hasn't been updated for several years. 
 
 See LICENSE for license information.
 
 Building cci
 ============
 
-Install latest cci first. You can get it from http://cci-forum.com/.
+Install latest cci first. You can get it from https://github.com/CCI/cci.
 
 Then build and install the bindings:
 
